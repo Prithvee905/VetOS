@@ -1,0 +1,630 @@
+openapi: 3.0.3
+info:
+  title: VetOS API
+  version: 0.1.0
+  description: |
+    Cookie-authenticated clinic API. Implemented paths include auth, clinic profile,
+    user administration, branch list, and health. Paths marked x-status planned are
+    the remaining first vertical slice contract.
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: Auth
+  - name: Clinic
+  - name: Users
+  - name: Branches
+  - name: Patients
+  - name: Appointments
+  - name: Queue
+  - name: Consultations
+  - name: Prescriptions
+  - name: Invoices
+  - name: Payments
+paths:
+  /api/v1/auth/csrf:
+    get:
+      tags: [Auth]
+      summary: Issue a CSRF cookie
+      security: []
+      responses:
+        "204":
+          description: CSRF cookie set
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Cookies set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionUser"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rotate refresh token
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "200":
+          description: Cookies rotated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionUser"
+        "401":
+          $ref: "#/components/responses/Error"
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke refresh token
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "204":
+          description: Cookies cleared
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Current user
+      responses:
+        "200":
+          description: Current session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionUser"
+        "401":
+          $ref: "#/components/responses/Error"
+  /api/v1/clinic:
+    get:
+      tags: [Clinic]
+      summary: Read the authenticated clinic profile
+      responses:
+        "200":
+          description: Clinic profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClinicProfile"
+        "401":
+          $ref: "#/components/responses/Error"
+    patch:
+      tags: [Clinic]
+      summary: Update the authenticated clinic profile
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClinicProfileUpdate"
+      responses:
+        "200":
+          description: Updated clinic profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClinicProfile"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /api/v1/users:
+    get:
+      tags: [Users]
+      summary: List clinic users
+      responses:
+        "200":
+          description: User page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPage"
+        "403":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Users]
+      summary: Create a clinic user
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreate"
+      responses:
+        "201":
+          description: Created user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /api/v1/users/{userId}:
+    patch:
+      tags: [Users]
+      summary: Update a clinic user
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /api/v1/branches:
+    get:
+      tags: [Branches]
+      summary: List branches in the authenticated clinic
+      responses:
+        "200":
+          description: Branch page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BranchPage"
+        "401":
+          $ref: "#/components/responses/Error"
+  /api/v1/patients:
+    post:
+      tags: [Patients]
+      x-status: planned
+      summary: Register a pet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatientCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Patient"
+  /api/v1/appointments:
+    post:
+      tags: [Appointments]
+      x-status: planned
+      summary: Create an appointment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppointmentCreate"
+      responses:
+        "201":
+          description: Created
+  /api/v1/queue:
+    post:
+      tags: [Queue]
+      x-status: planned
+      summary: Check a patient into the queue
+      responses:
+        "201":
+          description: Queue entry created
+  /api/v1/consultations:
+    post:
+      tags: [Consultations]
+      x-status: planned
+      summary: Record a consultation with differentials and doctor notes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConsultationCreate"
+      responses:
+        "201":
+          description: Created
+  /api/v1/prescriptions:
+    post:
+      tags: [Prescriptions]
+      x-status: planned
+      summary: Create a prescription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrescriptionCreate"
+      responses:
+        "201":
+          description: Created
+  /api/v1/invoices:
+    post:
+      tags: [Invoices]
+      x-status: planned
+      summary: Issue an invoice from billable sources including prescription lines
+      responses:
+        "201":
+          description: Issued invoice with snapshotted lines
+  /api/v1/payments:
+    post:
+      tags: [Payments]
+      x-status: planned
+      summary: Record a payment
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Payment recorded by the server
+components:
+  parameters:
+    CsrfHeader:
+      in: header
+      name: X-XSRF-TOKEN
+      required: true
+      schema:
+        type: string
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: vetos_access
+  schemas:
+    ApiError:
+      type: object
+      required: [code, message, details, timestamp, requestId]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+        timestamp:
+          type: string
+          format: date-time
+        requestId:
+          type: string
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+    SessionUser:
+      type: object
+      required: [id, clinicId, displayName, roles]
+      properties:
+        id:
+          type: string
+          format: uuid
+        clinicId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+    Branch:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+    BranchPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Branch"
+        page:
+          type: integer
+        size:
+          type: integer
+        hasNext:
+          type: boolean
+    ClinicProfile:
+      type: object
+      required: [id, name, timezone, currencyCode, defaultTaxRate, status, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        legalName:
+          type: string
+          nullable: true
+        timezone:
+          type: string
+        currencyCode:
+          type: string
+        defaultTaxRate:
+          type: number
+        phone:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        status:
+          type: string
+        version:
+          type: integer
+          format: int64
+    ClinicProfileUpdate:
+      type: object
+      required: [version]
+      properties:
+        version:
+          type: integer
+          format: int64
+        name:
+          type: string
+        legalName:
+          type: string
+        timezone:
+          type: string
+        currencyCode:
+          type: string
+        defaultTaxRate:
+          type: number
+        phone:
+          type: string
+        email:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, SUSPENDED]
+    User:
+      type: object
+      required: [id, email, displayName, status, roles, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        displayName:
+          type: string
+        status:
+          type: string
+        branchId:
+          type: string
+          format: uuid
+          nullable: true
+        roles:
+          type: array
+          items:
+            type: string
+        version:
+          type: integer
+          format: int64
+    UserPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        page:
+          type: integer
+        size:
+          type: integer
+        hasNext:
+          type: boolean
+    UserCreate:
+      type: object
+      required: [email, password, displayName, roles]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        displayName:
+          type: string
+        branchId:
+          type: string
+          format: uuid
+        roles:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [OWNER, DOCTOR, RECEPTIONIST, STAFF]
+    UserUpdate:
+      type: object
+      required: [version]
+      properties:
+        version:
+          type: integer
+          format: int64
+        displayName:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, DISABLED]
+        branchId:
+          type: string
+          format: uuid
+        roles:
+          type: array
+          items:
+            type: string
+            enum: [OWNER, DOCTOR, RECEPTIONIST, STAFF]
+    PatientCreate:
+      type: object
+      required: [clientId, name, speciesCode, sizeCategory]
+      properties:
+        clientId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        speciesCode:
+          type: string
+        breed:
+          type: string
+        sizeCategory:
+          type: string
+          enum: [SMALL, MEDIUM, LARGE]
+        dateOfBirth:
+          type: string
+          format: date
+        sexCode:
+          type: string
+    Patient:
+      allOf:
+        - $ref: "#/components/schemas/PatientCreate"
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+    AppointmentCreate:
+      type: object
+      required: [branchId, patientId, doctorUserId, startsAt, endsAt]
+      properties:
+        branchId:
+          type: string
+          format: uuid
+        patientId:
+          type: string
+          format: uuid
+        doctorUserId:
+          type: string
+          format: uuid
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+        notes:
+          type: string
+    ConsultationCreate:
+      type: object
+      required: [appointmentId, doctorRemarks, doctorNotes]
+      properties:
+        appointmentId:
+          type: string
+          format: uuid
+        subjective:
+          type: string
+        history:
+          type: string
+        examination:
+          type: string
+        assessment:
+          type: string
+        plan:
+          type: string
+        diagnosis:
+          type: string
+        doctorRemarks:
+          type: string
+        doctorNotes:
+          type: string
+        differentials:
+          type: array
+          items:
+            type: object
+            required: [label]
+            properties:
+              label:
+                type: string
+              rank:
+                type: integer
+    PrescriptionCreate:
+      type: object
+      required: [consultationId, items]
+      properties:
+        consultationId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            type: object
+            required: [medicineName, quantity, dosage, frequency, duration]
+            properties:
+              medicineName:
+                type: string
+              quantity:
+                type: number
+              dosage:
+                type: string
+              frequency:
+                type: string
+              duration:
+                type: string
+              route:
+                type: string
+              instructions:
+                type: string
+security:
+  - cookieAuth: []

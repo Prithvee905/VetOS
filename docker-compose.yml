@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: vetos
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-role.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vetos"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  api:
+    build: ./apps/api
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/vetos
+      SPRING_DATASOURCE_USERNAME: vetos_app
+      SPRING_DATASOURCE_PASSWORD: vetos_app
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/vetos
+      SPRING_FLYWAY_USER: postgres
+      SPRING_FLYWAY_PASSWORD: postgres
+      VETOS_JWT_SECRET: dev-only-change-me-not-for-production-0001
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build: ./apps/web
+    environment:
+      API_ORIGIN: http://api:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api

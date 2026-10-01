@@ -1,0 +1,12 @@
+.tools/
+.idea/
+*.iml
+.DS_Store
+
+apps/api/target/
+apps/web/node_modules/
+apps/web/.next/
+apps/web/out/
+apps/web/coverage/
+.env
+.env.local
