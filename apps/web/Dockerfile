@@ -3,6 +3,8 @@ WORKDIR /src
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+ARG API_ORIGIN=http://api:8080
+ENV API_ORIGIN=$API_ORIGIN
 RUN npm run build
 
 FROM node:22-alpine

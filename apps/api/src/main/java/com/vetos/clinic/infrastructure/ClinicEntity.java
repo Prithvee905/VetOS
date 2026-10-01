@@ -25,7 +25,8 @@ public class ClinicEntity {
 	@Column(nullable = false)
 	private String timezone;
 
-	@Column(name = "currency_code", nullable = false, length = 3, columnDefinition = "char(3)")
+	@org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.CHAR)
+	@Column(name = "currency_code", nullable = false, length = 3)
 	private String currencyCode;
 
 	@Column(name = "default_tax_rate", nullable = false)
