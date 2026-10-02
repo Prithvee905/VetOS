@@ -19,9 +19,13 @@ export default function ClinicSettingsPage() {
       apiJson<ClinicProfile>("/api/v1/clinic", { method: "PATCH", body: JSON.stringify(payload) }),
     onSuccess: (data) => {
       client.setQueryData(["clinic"], data);
+      setForm({});
       setMessage("Clinic profile saved.");
     },
-    onError: (error: Error) => setMessage(error.message),
+    onError: (error: Error) => {
+      client.invalidateQueries({ queryKey: ["clinic"] });
+      setMessage(error.message);
+    },
   });
 
   if (clinic.isLoading) {

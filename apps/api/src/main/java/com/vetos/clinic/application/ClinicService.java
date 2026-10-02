@@ -58,7 +58,7 @@ public class ClinicService {
 			clinic.setStatus(request.status());
 		}
 		clinic.setUpdatedAt(Instant.now());
-		ClinicEntity saved = clinicRepository.save(clinic);
+		ClinicEntity saved = clinicRepository.saveAndFlush(clinic);
 		auditRecorder.record(clinicId, actorUserId, "UPDATE", "clinic", clinicId, requestId);
 		return toResponse(saved);
 	}

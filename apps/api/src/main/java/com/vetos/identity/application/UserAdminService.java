@@ -108,7 +108,7 @@ public class UserAdminService {
 			replaceRoles(userId, clinicId, request.roles());
 		}
 		user.setUpdatedAt(Instant.now());
-		UserEntity saved = userRepository.save(user);
+		UserEntity saved = userRepository.saveAndFlush(user);
 		List<String> roles = loadRoles(List.of(userId)).getOrDefault(userId, List.of());
 		auditRecorder.record(clinicId, actorUserId, "UPDATE", "user", userId, requestId);
 		return toResponse(saved, roles);

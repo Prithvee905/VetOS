@@ -59,6 +59,16 @@ The user was unable to run the VetOS application locally using `docker compose u
 - **Problem:** The Next.js standalone container only bound to the container hostname, refusing connections to `127.0.0.1` and `0.0.0.0`.
 - **Action Taken:** Updated `apps/web/Dockerfile` with `ENV HOSTNAME="0.0.0.0"` and `ENV PORT=3000` per Next.js deployment standards.
 
+### 14. Fixed 409 Conflict Bug on Clinic Profile Save (Optimistic Locking)
+- **Problem:** When saving clinic details, subsequent saves or quick updates failed with HTTP 409 (`VERSION_CONFLICT`).
+- **Root Cause Identified:** Both `clinics` and `users` use JPA `@Version` for concurrency control. `ClinicService.update` was calling `clinicRepository.save(clinic)` instead of `saveAndFlush(clinic)`. In Spring Data JPA, `save()` does not immediately execute the SQL update until transaction commit, so the returned DTO sent back the pre-incremented version number to the frontend. Subsequent client requests submitted the stale version, which PostgreSQL and Hibernate rejected with 409.
+- **Action Taken:** Updated `ClinicService.java` and `UserAdminService.java` to use `saveAndFlush()`. This flushes the update immediately and ensures the response returns the newly incremented `@Version`.
+
+### 15. Synchronized Frontend Draft State on Save/Conflict
+- **Problem:** The frontend `ClinicSettingsPage` did not reset dirty draft input states on successful mutation, and didn't refetch on conflict errors.
+- **Action Taken:** Updated `apps/web/src/app/settings/clinic/page.tsx` to clear draft form state on `onSuccess` and automatically invalidate/refetch queries via React Query on `onError`.
+- **Verification:** Ran automated sequential PATCH requests (`v3 -> v4 -> v5`), confirming that multiple consecutive saves succeed with HTTP 200 without any conflict errors.
+
 ## Educational Explanations Provided
 - Explained what Docker does (creates isolated containers for DB, Cache, API, and Web and links them via a virtual network).
 - Explained why a Python virtual environment is not needed (the stack is Java/Node.js).
