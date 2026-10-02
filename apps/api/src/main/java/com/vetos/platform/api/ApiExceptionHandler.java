@@ -29,8 +29,11 @@ public class ApiExceptionHandler {
 		return ResponseEntity.badRequest().body(body("VALIDATION_ERROR", "Request validation failed.", details, request));
 	}
 
+	private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ApiExceptionHandler.class);
+
 	@ExceptionHandler(Exception.class)
 	public ResponseEntity<ApiError> handleUnexpected(Exception exception, HttpServletRequest request) {
+		log.error("Unexpected error handling request {}: {}", request.getRequestURI(), exception.getMessage(), exception);
 		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
 				.body(body("INTERNAL_ERROR", "The request could not be completed.", List.of(), request));
 	}

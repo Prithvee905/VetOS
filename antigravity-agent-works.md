@@ -43,8 +43,25 @@ The user was unable to run the VetOS application locally using `docker compose u
 - `vetos-api-1`: Spring Boot 4.1.1 API UP on port 8080 (`/actuator/health` UP, dev owner seeded)
 - `vetos-web-1`: Next.js 16 Web UP on port 3000
 
+### 10. Diagnosed Login Redirect Loop / Bouncing Back to Sign-in
+- **Problem:** When submitting the login credentials, the frontend returned to the sign-in page without showing the clinic profile dashboard.
+- **Root Cause Identified:** The Next.js `SettingsShell` layout queries `/api/v1/auth/me` on mount. If that request fails, the shell executes `router.replace("/")` and kicks the user back to the sign-in form. Calling `/api/v1/auth/me` returned HTTP 500 (`INTERNAL_ERROR`).
+
+### 11. Fixed Spring Security Principal Type Mismatch
+- **Problem:** All protected controllers (`AuthController`, `ClinicController`, `UserController`) use `@AuthenticationPrincipal VetosAuthentication authentication`. However, `VetosAuthentication.getPrincipal()` was returning `userId` (a `UUID`). Spring Security could not map the `UUID` to `VetosAuthentication`, resulting in a `null` argument and throwing a `NullPointerException` on `authentication.userId()`.
+- **Action Taken:** Modified `VetosAuthentication.java` so `getPrincipal()` returns `this`, allowing `@AuthenticationPrincipal` to properly inject the `VetosAuthentication` instance.
+
+### 12. Added Comprehensive Logging to Global Exception Handler
+- **Problem:** `ApiExceptionHandler.java` was returning generic 500 errors to clients while completely swallowing stack traces from console output, obscuring internal runtime errors.
+- **Action Taken:** Integrated SLF4J logger in `ApiExceptionHandler.java` to print full stack traces for all unexpected exceptions.
+
+### 13. Fixed Next.js Standalone Network Binding
+- **Problem:** The Next.js standalone container only bound to the container hostname, refusing connections to `127.0.0.1` and `0.0.0.0`.
+- **Action Taken:** Updated `apps/web/Dockerfile` with `ENV HOSTNAME="0.0.0.0"` and `ENV PORT=3000` per Next.js deployment standards.
+
 ## Educational Explanations Provided
 - Explained what Docker does (creates isolated containers for DB, Cache, API, and Web and links them via a virtual network).
 - Explained why a Python virtual environment is not needed (the stack is Java/Node.js).
 - Explained why there is no "Sign Up" page (B2B multi-tenant security relies on an admin-invite workflow).
 - Explained why Swagger UI is missing (the AI opted for a static `openapi.yaml` file instead of runtime Springdoc generation).
+- Evaluated overall codebase architecture (sound Postgres RLS and security models, but scaffolded with subtle AI integration bugs).

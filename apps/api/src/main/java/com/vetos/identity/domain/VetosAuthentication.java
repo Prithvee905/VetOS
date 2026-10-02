@@ -54,7 +54,7 @@ public final class VetosAuthentication implements Authentication {
 
 	@Override
 	public Object getPrincipal() {
-		return userId;
+		return this;
 	}
 
 	@Override
