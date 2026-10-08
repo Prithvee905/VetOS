@@ -12,35 +12,27 @@ Status: in progress in this milestone.
 
 ## Phase 2 and the first slice
 
-Status: in progress.
+Status: **done** (see `docs/progress.md`, `VerticalSliceFlowTest`).
 
-Login is already present. The slice still to build, in order:
+## Phases 3–11 (in-repo)
 
-1. Owner clinic and user management screens against the existing tables — **done**
-2. Client and pet registration, including size category
-3. Appointment booking with conflict prevention
-4. Queue check-in and status transitions
-5. Consultation with SOAP, differentials, doctor remarks, and doctor notes
-6. Prescription lines
-7. Invoice that snapshots prescription lines
-8. Idempotent payment
-9. Tests for tenant isolation on each of those tables
+Status: **partial** — schema + APIs in `V3__platform_expansion.sql` and platform controllers; full UI per module and workers not done. See `docs/product-scope.md`.
 
 ## Later phases
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| 3 | Clinic, branch, users, roles, permissions enforcement | NOT_STARTED |
-| 4 | Clients, leads, pets, timeline | NOT_STARTED |
-| 5 | Appointments, schedule, queue, triage | NOT_STARTED |
-| 6 | Consultation | NOT_STARTED |
-| 7 | Prescriptions, vaccinations, deworming | NOT_STARTED |
-| 8 | Pharmacy and inventory | NOT_STARTED |
-| 9 | Vendors and procurement | NOT_STARTED |
-| 10 | Billing, payments, expenses | NOT_STARTED |
-| 11 | Laboratory, surgery, IPD, grooming | NOT_STARTED |
-| 12 | WhatsApp, email, reminders, campaigns | NOT_STARTED |
-| 13 | Files, reports, owner export | NOT_STARTED |
+| 3 | Clinic, branch, users, roles, permissions enforcement | PARTIAL (branch create, permissions seeded) |
+| 4 | Clients, leads, pets, timeline | PARTIAL (clients/pets phase 2; leads API) |
+| 5 | Appointments, schedule, queue, triage | DONE (phase 2) |
+| 6 | Consultation | DONE (phase 2) |
+| 7 | Prescriptions, vaccinations, deworming | PARTIAL (Rx phase 2; vaccination API + tables) |
+| 8 | Pharmacy and inventory | PARTIAL (products, batches, movements tables) |
+| 9 | Vendors and procurement | PARTIAL (PO/GRN tables) |
+| 10 | Billing, payments, expenses | PARTIAL (billing phase 2; expenses table) |
+| 11 | Laboratory, surgery, IPD, grooming | PARTIAL (record tables + RLS) |
+| 12 | WhatsApp, email, reminders, campaigns | **CODE READY** (outbox worker, stub/real HTTP clients, webhook ingest, queue APIs) |
+| 13 | Files, reports, owner export | **CODE READY** (local blob storage, upload/download, export worker + status API) |
 | 14 | Offline sync for approved mutations | NOT_STARTED |
 | 15 | Advisory AI | NOT_STARTED |
 | 16 | AWS infrastructure | NOT_STARTED |

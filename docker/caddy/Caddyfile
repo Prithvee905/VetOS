@@ -1,0 +1,61 @@
+# ==============================================================================
+# ClinicOS / VetOS Production Caddy Configuration
+# Reverse Proxy with Automatic HTTPS via Let's Encrypt / ZeroSSL
+# ==============================================================================
+
+{$APP_DOMAIN:{$DOMAIN_NAME:localhost}} {
+    # Modern compression (zstd and gzip)
+    encode zstd gzip
+
+    # 1. Spring Boot REST API
+    handle /api/* {
+        reverse_proxy api:8080 {
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up Host {host}
+        }
+    }
+
+    # 2. Public Health Probe (Only /actuator/health is permitted)
+    handle /actuator/health* {
+        reverse_proxy api:8080 {
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up Host {host}
+        }
+    }
+
+    # 3. Block all sensitive Actuator endpoints from external access
+    # (env, beans, configprops, loggers, metrics, heapdump, mappings, etc.)
+    handle /actuator/* {
+        respond "Access Denied: Sensitive actuator endpoints are private." 403
+    }
+
+    # 4. Next.js Web Application Frontend (All other routes)
+    handle {
+        reverse_proxy web:3000 {
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up Host {host}
+        }
+    }
+
+    # Production HTTP Security Headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        X-XSS-Protection "1; mode=block"
+    }
+
+    # Production Structured Access Logging
+    log {
+        output file /data/access.log {
+            roll_size 20MB
+            roll_keep 5
+        }
+        format json
+    }
+}

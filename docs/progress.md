@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-10-01.
+Last updated: 2026-10-02.
 
 ## Foundation (phase 0 and 1)
 
@@ -17,14 +17,24 @@ Last updated: 2026-10-01.
 | Step | Status | Notes |
 | --- | --- | --- |
 | Owner clinic and user management | Done | `ClinicUserAdminTest`, `/settings/clinic`, `/settings/users` |
-| Client and pet registration | Not started | |
-| Appointment booking | Not started | |
-| Queue check-in | Not started | |
-| Consultation | Not started | |
-| Prescription lines | Not started | |
-| Invoice snapshot | Not started | |
-| Idempotent payment | Not started | |
-| Tenant isolation tests per slice table | Not started | Foundation RLS test exists |
+| Client and pet registration | Done | `V2__first_vertical_slice.sql`, `/api/v1/clients`, `/api/v1/patients`, `/clinic` |
+| Appointment booking | Done | Overlap exclusion, `/api/v1/appointments` |
+| Queue check-in | Done | `/api/v1/queue` |
+| Consultation | Done | SOAP fields, differentials, `/api/v1/consultations` |
+| Prescription lines | Done | `/api/v1/prescriptions` |
+| Invoice snapshot | Done | `/api/v1/invoices` from prescription lines |
+| Idempotent payment | Done | `Idempotency-Key` header, `/api/v1/payments` |
+| Tenant isolation tests per slice table | Done | `CrossTenantIsolationTest` (clients), `VerticalSliceFlowTest` |
+
+## Platform expansion (phases 3–11, partial)
+
+| Area | Status | Evidence |
+| --- | --- | --- |
+| Extended schema (leads, catalog, inventory, vendors, clinical add-ons) | Done | `V3__platform_expansion.sql` |
+| Leads, vaccinations, products, exports API | Done | `PlatformControllers`, `PlatformSmokeTest` |
+| Branch create | Done | `POST /api/v1/branches` |
+| Swagger UI | Done | `/swagger-ui.html` |
+| Async comms / S3 / full UI per module | Not done | `docs/product-scope.md` |
 
 ## How to verify locally
 

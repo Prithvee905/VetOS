@@ -3,14 +3,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { apiJson, type ClinicProfile } from "@/lib/api";
+import { apiJson, createBranch, listBranches, type ClinicProfile, type Branch } from "@/lib/api";
 
 export default function ClinicSettingsPage() {
   const client = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
+  const [branchName, setBranchName] = useState("");
   const clinic = useQuery({
     queryKey: ["clinic"],
     queryFn: () => apiJson<ClinicProfile>("/api/v1/clinic"),
+  });
+  const branches = useQuery({
+    queryKey: ["branches"],
+    queryFn: () => listBranches(),
   });
   const [form, setForm] = useState<Partial<ClinicProfile>>({});
 
@@ -28,6 +33,18 @@ export default function ClinicSettingsPage() {
     },
   });
 
+  const addBranch = useMutation({
+    mutationFn: () => createBranch({ name: branchName.trim() }),
+    onSuccess: (newBranch) => {
+      client.invalidateQueries({ queryKey: ["branches"] });
+      setBranchName("");
+      setMessage(`Branch created: ${newBranch.name}`);
+    },
+    onError: (error: Error) => {
+      setMessage(error.message);
+    },
+  });
+
   if (clinic.isLoading) {
     return <p className="text-slate-600">Loading clinic profile…</p>;
   }
@@ -40,51 +57,81 @@ export default function ClinicSettingsPage() {
   const values = { ...profile, ...form };
 
   return (
-    <section className="flex max-w-xl flex-col gap-4">
-      <h2 className="text-lg font-medium">Clinic profile</h2>
-      {message ? <p className="text-sm text-slate-700">{message}</p> : null}
-      <label className="text-sm font-medium" htmlFor="name">
-        Name
-      </label>
-      <input
-        id="name"
-        className="rounded-md border border-slate-300 px-3 py-2"
-        value={values.name ?? ""}
-        onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-      />
-      <label className="text-sm font-medium" htmlFor="phone">
-        Phone
-      </label>
-      <input
-        id="phone"
-        className="rounded-md border border-slate-300 px-3 py-2"
-        value={values.phone ?? ""}
-        onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
-      />
-      <label className="text-sm font-medium" htmlFor="email">
-        Email
-      </label>
-      <input
-        id="email"
-        className="rounded-md border border-slate-300 px-3 py-2"
-        type="email"
-        value={values.email ?? ""}
-        onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
-      />
-      <Button
-        type="button"
-        disabled={save.isPending}
-        onClick={() =>
-          save.mutate({
-            version: profile.version,
-            name: values.name,
-            phone: values.phone || null,
-            email: values.email || null,
-          })
-        }
-      >
-        {save.isPending ? "Saving…" : "Save changes"}
-      </Button>
-    </section>
+    <div className="flex flex-col gap-10">
+      <section className="flex max-w-xl flex-col gap-4">
+        <h2 className="text-lg font-medium">Clinic profile</h2>
+        {message ? <p className="text-sm text-slate-700">{message}</p> : null}
+        <label className="text-sm font-medium" htmlFor="name">
+          Clinic Name
+        </label>
+        <input
+          id="name"
+          className="rounded-md border border-slate-300 px-3 py-2"
+          value={values.name ?? ""}
+          onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+        />
+        <label className="text-sm font-medium" htmlFor="phone">
+          Phone
+        </label>
+        <input
+          id="phone"
+          className="rounded-md border border-slate-300 px-3 py-2"
+          value={values.phone ?? ""}
+          onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
+        />
+        <label className="text-sm font-medium" htmlFor="email">
+          Email
+        </label>
+        <input
+          id="email"
+          className="rounded-md border border-slate-300 px-3 py-2"
+          type="email"
+          value={values.email ?? ""}
+          onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
+        />
+        <Button
+          type="button"
+          disabled={save.isPending}
+          onClick={() =>
+            save.mutate({
+              version: profile.version,
+              name: values.name,
+              phone: values.phone || null,
+              email: values.email || null,
+            })
+          }
+        >
+          {save.isPending ? "Saving…" : "Save changes"}
+        </Button>
+      </section>
+
+      <section className="flex max-w-xl flex-col gap-4 border-t border-slate-200 pt-6">
+        <h2 className="text-lg font-medium">Clinic Branches / Locations</h2>
+        <div className="rounded-md border border-slate-200 divide-y divide-slate-100">
+          {(branches.data?.items ?? []).map((b: Branch) => (
+            <div key={b.id} className="flex items-center justify-between p-3 text-sm">
+              <span className="font-semibold text-slate-800">{b.name}</span>
+              <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-bold">{b.status}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2 mt-2">
+          <input
+            placeholder="New branch name (e.g. Downtown Facility)"
+            className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+            value={branchName}
+            onChange={(e) => setBranchName(e.target.value)}
+          />
+          <Button
+            type="button"
+            disabled={!branchName.trim() || addBranch.isPending}
+            onClick={() => addBranch.mutate()}
+          >
+            {addBranch.isPending ? "Creating…" : "Add Branch"}
+          </Button>
+        </div>
+      </section>
+    </div>
   );
 }

@@ -48,11 +48,17 @@ class CrossTenantIsolationTest extends ApiIntegrationTest {
 					""", auditA, clinicA, userA, branchA);
 		});
 
+		UUID clientA = UuidV7.generate();
+		inClinic(clinicA, () -> jdbcTemplate.update("""
+				insert into clients (id, clinic_id, display_name) values (?, ?, ?)
+				""", clientA, clinicA, "Client A"));
+
 		inClinic(clinicB, () -> {
 			assertThat(count("branches")).isZero();
 			assertThat(count("users")).isZero();
 			assertThat(count("refresh_tokens")).isZero();
 			assertThat(count("audit_events")).isZero();
+			assertThat(count("clients")).isZero();
 			assertThat(jdbcTemplate.update("update branches set name = 'hacked' where id = ?", branchA)).isZero();
 			assertThat(jdbcTemplate.update("delete from branches where id = ?", branchA)).isZero();
 		});

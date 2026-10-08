@@ -1,0 +1,151 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-vetos}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      APP_DB_USER: ${APP_DB_USER:-vetos_app}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/01-init-role.sh:/docker-entrypoint-initdb.d/01-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - internal_network
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - internal_network
+
+  api:
+    build:
+      context: ./apps/api
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/vetos}
+      SPRING_DATASOURCE_USERNAME: ${APP_DB_USER:-vetos_app}
+      SPRING_DATASOURCE_PASSWORD: ${APP_DB_PASSWORD}
+      SPRING_FLYWAY_URL: ${SPRING_FLYWAY_URL:-jdbc:postgresql://postgres:5432/vetos}
+      SPRING_FLYWAY_USER: ${POSTGRES_USER:-postgres}
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-redis}
+      SPRING_DATA_REDIS_PORT: ${SPRING_DATA_REDIS_PORT:-6379}
+      VETOS_JWT_SECRET: ${VETOS_JWT_SECRET}
+      VETOS_CORS_ALLOWED_ORIGIN: ${VETOS_CORS_ALLOWED_ORIGIN:-https://${APP_DOMAIN:-${DOMAIN_NAME:-localhost}}}
+      VETOS_STORAGE_TYPE: ${VETOS_STORAGE_TYPE:-local}
+      VETOS_STORAGE_LOCAL_BASE_PATH: /data/blobs
+      META_WHATSAPP_TOKEN: ${META_WHATSAPP_TOKEN:-}
+      META_WHATSAPP_PHONE_NUMBER_ID: ${META_WHATSAPP_PHONE_NUMBER_ID:-}
+      META_WHATSAPP_BUSINESS_ACCOUNT_ID: ${META_WHATSAPP_BUSINESS_ACCOUNT_ID:-}
+    volumes:
+      - blobs_data:/data/blobs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - internal_network
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        API_ORIGIN: ${API_ORIGIN:-http://api:8080}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_ORIGIN: ${API_ORIGIN:-http://api:8080}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://${APP_DOMAIN:-${DOMAIN_NAME:-localhost}}/api/v1}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - internal_network
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-${DOMAIN_NAME:-localhost}}
+      DOMAIN_NAME: ${APP_DOMAIN:-${DOMAIN_NAME:-localhost}}
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - api
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:80 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - internal_network
+
+networks:
+  internal_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  blobs_data:
+  caddy_data:
+  caddy_config:

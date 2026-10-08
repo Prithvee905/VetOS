@@ -10,3 +10,8 @@ apps/web/out/
 apps/web/coverage/
 .env
 .env.local
+.env.production
+*.env.production
+backups/
+.vetos-blobs/
+apps/api/.vetos-blobs/

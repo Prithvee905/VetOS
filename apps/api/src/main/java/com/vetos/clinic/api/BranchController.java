@@ -1,7 +1,19 @@
 package com.vetos.clinic.api;
 
+import com.vetos.clinic.application.BranchAdminService;
 import com.vetos.clinic.infrastructure.BranchEntity;
 import com.vetos.clinic.infrastructure.BranchRepository;
+import com.vetos.identity.application.AuthorizationSupport;
+import com.vetos.identity.domain.VetosAuthentication;
+import com.vetos.platform.api.RequestIds;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
@@ -15,9 +27,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class BranchController {
 
 	private final BranchRepository branchRepository;
+	private final BranchAdminService branchAdminService;
+	private final AuthorizationSupport authorizationSupport;
 
-	public BranchController(BranchRepository branchRepository) {
+	public BranchController(
+			BranchRepository branchRepository,
+			BranchAdminService branchAdminService,
+			AuthorizationSupport authorizationSupport) {
 		this.branchRepository = branchRepository;
+		this.branchAdminService = branchAdminService;
+		this.authorizationSupport = authorizationSupport;
 	}
 
 	@GetMapping
@@ -28,6 +47,19 @@ public class BranchController {
 		boolean hasNext = rows.size() > safeSize;
 		List<BranchResponse> items = rows.stream().limit(safeSize).map(row -> new BranchResponse(row.getId(), row.getName(), row.getStatus())).toList();
 		return new BranchPage(items, safePage, safeSize, hasNext);
+	}
+
+	@PostMapping
+	@ResponseStatus(HttpStatus.CREATED)
+	public BranchResponse create(
+			@AuthenticationPrincipal VetosAuthentication authentication,
+			@Valid @RequestBody BranchCreateBody body,
+			HttpServletRequest request) {
+		authorizationSupport.requirePermission(authentication, "BRANCH_MANAGE");
+		return branchAdminService.create(authentication.clinicId(), authentication.userId(), new BranchAdminService.BranchCreateRequest(body.name()), RequestIds.from(request));
+	}
+
+	public record BranchCreateBody(@NotBlank String name) {
 	}
 
 	public record BranchResponse(UUID id, String name, String status) {

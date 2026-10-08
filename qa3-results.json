@@ -1,0 +1,51 @@
+[
+  {
+    "id": "PASS3-BRANCH-01",
+    "area": "Branch Switcher (DEF-001)",
+    "result": "PASS",
+    "classification": "PASS",
+    "evidence": "Switched to \"QA_TEST_Branch_North\" (01a115e6-c207-78cf-b8ed-5321673cf201). Active context and localStorage persisted."
+  },
+  {
+    "id": "PASS3-QUEUE-01",
+    "area": "Walk-In & Live Queue Token (DEF-001)",
+    "result": "PASS",
+    "classification": "PASS",
+    "evidence": "Walk-in registration created client, patient QA3_WalkIn_1179, appointment, and unique queue token on Live Queue board. Survived full page refresh."
+  },
+  {
+    "id": "PASS3-BILL-01",
+    "area": "Standalone POS Invoicing & Payment Collection (DEF-003)",
+    "result": "PASS",
+    "classification": "PASS",
+    "evidence": "Standalone invoice issued without prescription and payment collected successfully via counter POS (Collect $26350 (UPI))."
+  },
+  {
+    "id": "PASS3-STAFF-01",
+    "area": "Staff Creation & Permission Lifecycle",
+    "result": "PASS",
+    "classification": "PASS",
+    "evidence": "Owner created staff user qa3.staff.8632@example.com. Staff rendered in roster, authenticated into platform, and owner settings were restricted."
+  },
+  {
+    "id": "PASS3-RECEPT-01",
+    "area": "Receptionist Appointments Access",
+    "result": "PASS",
+    "classification": "PASS",
+    "evidence": "Receptionist (reception@vetos.test) logged in with valid credentials, accessed /clinic, and viewed the complete Doctor Roster & Daily Appointments schedule."
+  },
+  {
+    "id": "PASS3-TIMELINE-01",
+    "area": "Patient Medical Timeline Chronology",
+    "result": "PASS",
+    "classification": "PASS",
+    "evidence": "Patient timeline loaded 13 chronological events (Consultations, Vaccines, Dewormings, Invoices) with verified badges."
+  },
+  {
+    "id": "PASS3-A11Y-01",
+    "area": "Modal Accessibility & HTML IDs (DEF-002)",
+    "result": "PASS",
+    "classification": "PASS",
+    "evidence": "Verified explicit HTML id and htmlFor attributes on owner and pet registration modal inputs."
+  }
+]

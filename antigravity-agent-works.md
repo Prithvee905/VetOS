@@ -69,9 +69,92 @@ The user was unable to run the VetOS application locally using `docker compose u
 - **Action Taken:** Updated `apps/web/src/app/settings/clinic/page.tsx` to clear draft form state on `onSuccess` and automatically invalidate/refetch queries via React Query on `onError`.
 - **Verification:** Ran automated sequential PATCH requests (`v3 -> v4 -> v5`), confirming that multiple consecutive saves succeed with HTTP 200 without any conflict errors.
 
+### 16. Fixed User Creation Foreign Key Constraint & Documented 409 Duplicate Email
+- **Problem:** Attempting to create a user failed. Two scenarios were investigated:
+  1. If creating a user with an already existing email (e.g. `owner@clinic.test`), the backend throws `ApiException.conflict("A user with that email already exists.")` resulting in HTTP 409 Conflict as intended by email uniqueness rules.
+  2. For fresh users, the backend threw a PostgreSQL foreign key error: `insert into user_roles violates foreign key constraint "user_roles_user_fk"` because `userRepository.save(user)` had not flushed the new user record into PostgreSQL before raw JDBC executed `insert into user_roles`.
+- **Action Taken:** Updated `UserAdminService.create` to use `userRepository.saveAndFlush(user)`. Recompiled the JAR and restarted the API container.
+- **Verification:** Successfully created a new user with the `OWNER` role (`second.owner@clinic.test`) returning HTTP 201 Created and confirmed both owners appear in `/api/v1/users`.
+
+### 17. Full Enterprise Platform Implementation (Sections 1–92 Specification)
+- **Problem Statement:** The user asked whether the codebase matched the complete master specification and requested the full product to be built without hallucinations.
+- **Audit Findings:** While database migrations V1–V4 had created tables for inventory batches, vendors, POs, expenses, labs, surgeries, admissions, deworming, and grooming, the application lacked backend REST controllers, business services, and frontend screens for these modules. The UI only offered a single linear clinic flow and a static placeholder for `/modules`.
+- **Backend Services & REST Controllers Implemented (`apps/api`):**
+  1. `InventoryService.java` & `InventoryControllers.java`: Product catalog search & creation, batch inventory with expiry tracking, stock movements ledger, manual stock reconciliation adjustments, and atomic pharmacy dispensing against doctor prescriptions.
+  2. `ProcurementService.java` & `ProcurementControllers.java`: Vendor management, purchase orders lifecycle (`DRAFT` -> `ORDERED` -> `RECEIVED`), and goods receipt engine (atomically receiving PO lines, creating/incrementing batches, and logging stock movements).
+  3. `SpecialtyService.java` & `SpecialtyControllers.java`: Parasite prevention (Deworming doses & next due date reminders), Diagnostic Pathology Labs (order creation & progress tracking), Operating Room Surgeries (procedure scheduling & completion), Hospitalization / IPD Admissions (ward check-in & discharge), and Spa Grooming Bookings.
+  4. `FinanceService.java` & `FinanceControllers.java`: Operating expense ledger (categorization by rent, electricity, medical supplies, staff salaries) and Executive Financial Summary (total invoiced, cash collected, accounts receivable, total expenses, net operating profit, and category breakdowns).
+  5. `DashboardService.java` & `DashboardControllers.java`: Command Center daily overview (today's appointment count, live waiting queue, today's collected revenue, active patient census, low stock alerts, hospitalized IPD count, due vaccination alerts, due deworming alerts) and Omni-Search (fuzzy search across pets, clients, and catalog items).
+  6. `ClinicalWorkflowService.java` & `ClinicalControllers.java`: Added `getPatientTimeline()` aggregating consultations (SOAP notes + vitals), prescriptions, vaccinations, dewormings, labs, surgeries, admissions, and invoices into a unified chronological medical timeline.
+  7. `RolePermissions.java`: Granted `INVENTORY_WRITE` to DOCTOR and RECEPTIONIST roles for seamless clinical and dispensing access.
+  8. `ApiException.java`: Added `badRequest(String message)` utility method and removed duplicate springdoc dependency in `pom.xml`.
+- **Frontend Modules & Modern UI Implemented (`apps/web`):**
+  1. `components/app-shell.tsx`: Upgraded with top-level Omni-Search bar (with live instant dropdown results for pets, owners, and products), active status indicator, role badges, and responsive top-navigation across all modules.
+  2. `app/dashboard/page.tsx`: Executive command center with real-time KPI cards, vaccination & deworming due alert cards, and operational shortcut buttons.
+  3. `app/patients/page.tsx`: Comprehensive patient directory, owner registration modal, pet registration modal, and interactive chronological medical history timeline with quick-action buttons for deworming and diagnostic orders.
+  4. `app/pharmacy/page.tsx`: Prescription dispensing station with batch selection, stock verification, and live batches overview.
+  5. `app/inventory/page.tsx`: Product catalog master, stock batches with low-stock (&le; 5 units) and expiring-soon (&le; 30 days) filter toggles, stock adjustments modal, and movement audit ledger modal.
+  6. `app/procurement/page.tsx`: Pharmaceutical vendor directory, purchase order creation with itemized lines, PO detail inspection, and goods receipt modal.
+  7. `app/specialties/page.tsx`: Multi-tab interface for Diagnostic Labs, Surgeries, Hospitalization / IPD Ward (with instant discharge), and Grooming / Spa sessions.
+  8. `app/analytics/page.tsx`: Financial ledger with revenue by clinical source, expense breakdown by category, expense voucher modal, and cashflow KPIs.
+  9. `components/sign-in-panel.tsx`: Updated post-login redirect to land on `/dashboard`.
+  10. `components/ui/button.tsx`: Added `size` variants (`sm`, `default`, `lg`) using `cva` for clean type safety.
+  11. `lib/api.ts`: Added full TypeScript interfaces and API helper methods for all new platform endpoints.
+- **Verification & Testing Results:**
+  - Maven compile: `BUILD SUCCESS` (68 source files compiled with Java 21).
+  - Next.js Turbopack build: All 14 routes compiled and statically optimized without errors.
+  - Docker containers: Rebuilt `vetos-api` and `vetos-web`, all running healthy.
+  - End-to-End Automated Test: 16-step integration script verified login, overview metrics, branches, product creation, batch creation, stock adjustment, vendor creation, PO creation, goods receipt, patient registration, specialties (deworming, lab, surgery, IPD admission, grooming), expense recording, financial analytics, omni-search, and chronological patient timeline. All passed with 100% success.
+
 ## Educational Explanations Provided
 - Explained what Docker does (creates isolated containers for DB, Cache, API, and Web and links them via a virtual network).
 - Explained why a Python virtual environment is not needed (the stack is Java/Node.js).
 - Explained why there is no "Sign Up" page (B2B multi-tenant security relies on an admin-invite workflow).
 - Explained why Swagger UI is missing (the AI opted for a static `openapi.yaml` file instead of runtime Springdoc generation).
 - Evaluated overall codebase architecture (sound Postgres RLS and security models, but scaffolded with subtle AI integration bugs).
+
+### 18. Prototype Parity Implementation (P0, P1, P2 Backlog from `antigravity-tasks.md`)
+- **P0: Clinical Station Overhaul (`/clinic`):**
+  1. **Live Queue Triage Board:** Real-time polling queue board displaying token numbers, patient ID, attending doctor, priority badges (`NORMAL` vs `EMERGENCY` with pulse animation), status workflow (`WAITING`, `IN_CONSULTATION`, `COMPLETED`, `NO_SHOW`, `CANCELLED`), and 1-click consultation launcher.
+  2. **Appointments & Doctor Roster:** Full daily schedule list with doctor filtering, check-in to queue button, and appointment booking form.
+  3. **SOAP Consultation Station:** Complete clinical station capturing:
+     - **S (Subjective):** Chief complaint, history of illness, and owner observations.
+     - **O (Objective):** Physical exam findings and vitals (Temperature, Heart Rate, Respiratory Rate, Mucous membranes, Hydration).
+     - **A (Assessment):** Primary diagnosis and ranked differential diagnoses list.
+     - **P (Plan):** Treatment plan, discharge notes, and follow-up date picker.
+     - **Digital Prescription Writer:** Multi-line prescription composer (Drug name, quantity, dosage, frequency, duration, route, instructions) generating prescriptions and auto-forwarding to billing.
+  4. **Unified Invoice Basket & POS:** Multi-line billing basket supporting:
+     - Doctor prescriptions
+     - Standard catalog clinical services (`listServices()`)
+     - OTC retail inventory products (`listProducts()`)
+     - Instant payment capture (UPI, Card, Cash) with idempotency key generation.
+  5. **Quick Walk-In Registration:** 10-second client + pet registration that automatically books an appointment and checks into the queue with a token.
+
+- **P1: Communications, Reminders, and CRM:**
+  1. **Communications & PRM Hub (`/communications`):**
+     - Direct WhatsApp message composer (with templates like `CLINIC_UPDATE`, `APPOINTMENT_REMINDER`).
+     - Direct Email message composer.
+     - **PRM Automated Reminder Engine:** `ReminderService.java` and `POST /api/v1/reminders/trigger` scanning appointments (next 24h), vaccines (due in 7d), and deworming (due in 7d) with automatic deduplication into `outbox_events`.
+     - **Live Outbox Monitor:** Real-time table of outbox delivery events, worker status, payload previews, and retry tracking.
+  2. **Leads CRM Pipeline (`/leads`):**
+     - Lead intake form (Name, phone, email, acquisition source, notes).
+     - Leads pipeline table with status progression (`NEW`, `CONTACTED`, `QUALIFIED`, `CONVERTED`, `LOST`).
+     - 1-click "Convert to Client" button turning prospects into active clinic clients.
+  3. **Patient Vaccination Recording (`/patients`):**
+     - Added dedicated `+ Record Vaccine` modal capturing vaccine name, administration date, next booster date, batch number, and administration site notes.
+     - Exposed `GET /api/v1/vaccinations` in `PlatformControllers.java` and `PlatformExpansionService.java`.
+
+- **P2: Operations & Audit Trail:**
+  1. **Services Catalog (`/settings/services`):**
+     - `ServiceCatalogService.java` & `ServiceCatalogController.java` (`GET /api/v1/services`, `POST /api/v1/services`, `PATCH /api/v1/services/{id}/status`).
+     - UI to create and manage standard clinic service codes and default pricing.
+  2. **Immutable Audit Trail (`/settings/audit`):**
+     - `AuditQueryService.java` & `AuditController.java` (`GET /api/v1/audit-events`).
+     - Paginated compliance table displaying timestamp, actor, action, entity type, entity ID, and distributed request IDs.
+
+- **Verification Results:**
+  - Java API: Clean compilation (`74 source files`), JAR repackaged, all 9/9 Spring Boot + Testcontainers integration tests passing (`BUILD SUCCESS`).
+  - Next.js Web: Turbopack production build compiled all 18 routes without errors (`Exit code 0`).
+  - Docker Compose: Containers `vetos-postgres-1`, `vetos-redis-1`, `vetos-api-1`, and `vetos-web-1` running healthy.
+  - Browser Subagent: Automated browser run verified login, dashboard KPIs, all 5 `/clinic` tabs, `/communications` message dispatch and PRM reminder run, `/leads` CRM, `/settings/services`, and `/settings/audit` compliance logs.
+

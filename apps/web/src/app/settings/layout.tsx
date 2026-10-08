@@ -1,5 +1,5 @@
-import { SettingsShell } from "@/components/settings-shell";
+import { AppShell } from "@/components/app-shell";
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
-  return <SettingsShell>{children}</SettingsShell>;
+  return <AppShell title="Clinic settings">{children}</AppShell>;
 }

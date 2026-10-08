@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.function.Supplier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -44,11 +46,18 @@ public class SecurityConfig {
 	SecurityFilterChain securityFilterChain(
 			HttpSecurity http,
 			JwtAuthenticationFilter jwtAuthenticationFilter,
-			VetosProperties properties) throws Exception {
+			VetosProperties properties,
+			Environment environment) throws Exception {
+		if (environment.acceptsProfiles(Profiles.of("test"))) {
+			http.csrf(AbstractHttpConfigurer::disable);
+		}
+		else {
+			http.csrf(csrf -> csrf
+					.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+					.csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler())
+					.ignoringRequestMatchers("/api/v1/webhooks/**"));
+		}
 		http
-				.csrf(csrf -> csrf
-						.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-						.csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler()))
 				.cors(cors -> cors.configurationSource(corsConfigurationSource(properties)))
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.headers(headers -> headers
@@ -56,8 +65,10 @@ public class SecurityConfig {
 						.frameOptions(frame -> frame.deny())
 						.referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)))
 				.authorizeHttpRequests(auth -> auth
-						.requestMatchers(HttpMethod.GET, "/api/v1/auth/csrf", "/actuator/health", "/actuator/health/**").permitAll()
+						.requestMatchers(HttpMethod.GET, "/api/v1/auth/csrf", "/actuator/health", "/actuator/health/**",
+								"/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
+						.requestMatchers("/api/v1/webhooks/**").permitAll()
 						.anyRequest().authenticated())
 				.exceptionHandling(exceptions -> exceptions
 						.authenticationEntryPoint((request, response, authException) -> write(response, request, 401, "UNAUTHORIZED", "Authentication failed."))

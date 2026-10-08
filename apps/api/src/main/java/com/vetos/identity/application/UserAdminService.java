@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Transactional(noRollbackFor = ApiException.class)
 public class UserAdminService {
 
 	private final UserRepository userRepository;
@@ -58,7 +59,6 @@ public class UserAdminService {
 		return new UserPage(items, safePage, safeSize, hasNext);
 	}
 
-	@Transactional
 	public UserResponse create(UUID clinicId, UUID actorUserId, UserCreateRequest request, String requestId) {
 		validateRoles(request.roles());
 		if (userRepository.existsByEmailIgnoreCaseAndDeletedAtIsNull(request.email())) {
@@ -79,13 +79,12 @@ public class UserAdminService {
 		user.setStatus("ACTIVE");
 		user.setCreatedAt(now);
 		user.setUpdatedAt(now);
-		userRepository.save(user);
+		UserEntity saved = userRepository.saveAndFlush(user);
 		replaceRoles(userId, clinicId, request.roles());
 		auditRecorder.record(clinicId, actorUserId, "CREATE", "user", userId, requestId);
-		return toResponse(user, request.roles());
+		return toResponse(saved, request.roles());
 	}
 
-	@Transactional
 	public UserResponse update(UUID clinicId, UUID actorUserId, UUID userId, UserUpdateRequest request, String requestId) {
 		UserEntity user = userRepository.findByIdAndDeletedAtIsNull(userId).orElseThrow(ApiException::notFound);
 		if (request.version() != user.getVersion()) {

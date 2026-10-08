@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Transactional(noRollbackFor = ApiException.class)
 public class ClinicService {
 
 	private final ClinicRepository clinicRepository;
@@ -27,7 +28,6 @@ public class ClinicService {
 		return toResponse(requireClinic(clinicId));
 	}
 
-	@Transactional
 	public ClinicResponse update(UUID clinicId, UUID actorUserId, ClinicUpdateRequest request, String requestId) {
 		ClinicEntity clinic = requireClinic(clinicId);
 		if (request.version() != clinic.getVersion()) {
