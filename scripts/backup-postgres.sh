@@ -53,16 +53,23 @@ mkdir -p "$LOCAL_DIR"
 BACKUP_FILENAME="clinic-os-${TIMESTAMP}.sql.gz"
 LOCAL_FILEPATH="$LOCAL_DIR/$BACKUP_FILENAME"
 
+# Detect if sudo is required for docker
+if [ "$EUID" -ne 0 ] && ! docker ps > /dev/null 2>&1; then
+  COMPOSE_CMD="sudo docker compose -f docker-compose.prod.yml --env-file $PROJECT_ROOT/.env.production"
+else
+  COMPOSE_CMD="docker compose -f docker-compose.prod.yml --env-file $PROJECT_ROOT/.env.production"
+fi
+
 # 2. Check PostgreSQL Readiness
 log "[+] Verifying PostgreSQL connectivity in container..."
-if ! docker compose -f docker-compose.prod.yml exec -T postgres pg_isready -U "$DB_USER" -d "$DB_NAME" > /dev/null 2>&1; then
+if ! $COMPOSE_CMD exec -T postgres pg_isready -U "$DB_USER" -d "$DB_NAME"; then
   log "[-] CRITICAL: PostgreSQL is not accepting connections!"
   exit 2
 fi
 
 # 3. Create Compressed pg_dump Backup
 log "[+] Dumping database '$DB_NAME' to $LOCAL_FILEPATH..."
-if ! docker compose -f docker-compose.prod.yml exec -T postgres pg_dump -U "$DB_USER" -d "$DB_NAME" | gzip -9 > "$LOCAL_FILEPATH"; then
+if ! $COMPOSE_CMD exec -T postgres pg_dump -U "$DB_USER" -d "$DB_NAME" | gzip -9 > "$LOCAL_FILEPATH"; then
   log "[-] CRITICAL: pg_dump failed during execution!"
   rm -f "$LOCAL_FILEPATH"
   exit 3
