@@ -48,7 +48,7 @@ services:
       context: ./apps/api
     restart: unless-stopped
     environment:
-      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod,dev}
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/vetos}
       SPRING_DATASOURCE_USERNAME: ${APP_DB_USER:-vetos_app}
       SPRING_DATASOURCE_PASSWORD: ${APP_DB_PASSWORD}
