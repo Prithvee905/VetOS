@@ -23,7 +23,7 @@ $body = @{
 } | ConvertTo-Json
 
 $headers = @{
-    "Content-Type"             = "application/json"
+    "Content-Type"            = "application/json"
     "X-Platform-Admin-Secret" = $Secret
 }
 
@@ -31,7 +31,7 @@ try {
     Write-Host "[+] Resetting password for '$Email'..." -ForegroundColor Cyan
     $response = Invoke-RestMethod -Uri $ApiUrl -Method Post -Headers $headers -Body $body
     Write-Host "==========================================================" -ForegroundColor Green
-    Write-Host "  🔑 Password Successfully Reset!" -ForegroundColor Green
+    Write-Host "  [SUCCESS] Password Successfully Reset!" -ForegroundColor Green
     Write-Host "==========================================================" -ForegroundColor Green
     Write-Host "  User Email:    $Email"
     Write-Host "  New Password:  $NewPassword"

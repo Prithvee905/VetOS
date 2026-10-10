@@ -31,7 +31,7 @@ $body = @{
 } | ConvertTo-Json
 
 $headers = @{
-    "Content-Type"             = "application/json"
+    "Content-Type"            = "application/json"
     "X-Platform-Admin-Secret" = $Secret
 }
 
@@ -39,7 +39,7 @@ try {
     Write-Host "[+] Onboarding new clinic '$ClinicName' for '$Email'..." -ForegroundColor Cyan
     $response = Invoke-RestMethod -Uri $ApiUrl -Method Post -Headers $headers -Body $body
     Write-Host "==========================================================" -ForegroundColor Green
-    Write-Host "  🎉 Clinic Successfully Onboarded!" -ForegroundColor Green
+    Write-Host "  [SUCCESS] Clinic Successfully Onboarded!" -ForegroundColor Green
     Write-Host "==========================================================" -ForegroundColor Green
     Write-Host "  Clinic Name:   $ClinicName"
     Write-Host "  Branch:        $BranchName"
