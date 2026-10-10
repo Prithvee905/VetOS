@@ -55,7 +55,7 @@ public class SecurityConfig {
 			http.csrf(csrf -> csrf
 					.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
 					.csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler())
-					.ignoringRequestMatchers("/api/v1/webhooks/**"));
+					.ignoringRequestMatchers("/api/v1/webhooks/**", "/api/v1/platform-admin/**"));
 		}
 		http
 				.cors(cors -> cors.configurationSource(corsConfigurationSource(properties)))
@@ -68,7 +68,7 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.GET, "/api/v1/auth/csrf", "/actuator/health", "/actuator/health/**",
 								"/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
-						.requestMatchers("/api/v1/webhooks/**").permitAll()
+						.requestMatchers("/api/v1/webhooks/**", "/api/v1/platform-admin/**").permitAll()
 						.anyRequest().authenticated())
 				.exceptionHandling(exceptions -> exceptions
 						.authenticationEntryPoint((request, response, authException) -> write(response, request, 401, "UNAUTHORIZED", "Authentication failed."))

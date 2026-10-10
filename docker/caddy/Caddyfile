@@ -7,6 +7,11 @@
     # Modern compression (zstd and gzip)
     encode zstd gzip
 
+    # 0. Block internal platform admin endpoints from external public access
+    handle /api/v1/platform-admin/* {
+        respond "Access Denied: Internal admin endpoint." 403
+    }
+
     # 1. Spring Boot REST API
     handle /api/* {
         reverse_proxy api:8080

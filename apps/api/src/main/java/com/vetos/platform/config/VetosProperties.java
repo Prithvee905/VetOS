@@ -4,7 +4,7 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "vetos")
-public record VetosProperties(Jwt jwt, Security security, Cors cors, Dev dev, Workers workers, Storage storage, WhatsApp whatsApp, Email email) {
+public record VetosProperties(Jwt jwt, Security security, Cors cors, Dev dev, Workers workers, Storage storage, WhatsApp whatsApp, Email email, Platform platform) {
 
 	public VetosProperties {
 		if (jwt == null) {
@@ -31,6 +31,9 @@ public record VetosProperties(Jwt jwt, Security security, Cors cors, Dev dev, Wo
 		if (email == null) {
 			email = new Email("", "noreply@clinic.local", "");
 		}
+		if (platform == null) {
+			platform = new Platform("vetos-platform-admin-secret-change-me");
+		}
 	}
 
 	public record Jwt(String secret, Duration accessTtl, Duration refreshTtl) {
@@ -55,6 +58,9 @@ public record VetosProperties(Jwt jwt, Security security, Cors cors, Dev dev, Wo
 	}
 
 	public record Email(String apiBaseUrl, String fromAddress, String apiKey) {
+	}
+
+	public record Platform(String adminSecret) {
 	}
 
 }
