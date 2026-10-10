@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SignInPanel } from "./sign-in-panel";
 
 vi.mock("next/navigation", () => ({
@@ -7,6 +8,13 @@ vi.mock("next/navigation", () => ({
 }));
 
 test("shows the product name", () => {
-  render(<SignInPanel />);
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  render(
+    <QueryClientProvider client={queryClient}>
+      <SignInPanel />
+    </QueryClientProvider>
+  );
   expect(screen.getByRole("heading", { name: "VetOS" })).toBeInTheDocument();
 });
