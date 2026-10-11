@@ -1,7 +1,7 @@
 # Antigravity task file — VetOS inventory vs prototype
 
 **Repository:** `C:\Users\boddu\VetOS`  
-**Last verified:** 2026-10-03 (Full stack Docker rebuild + 9/9 backend integration tests passing + browser E2E verified across all routes)  
+**Last verified:** 2026-10-11 (Live AWS EC2 production deployment verified + Caddy auto-TLS + automated nightly backups + Super-Admin client onboarding & password governance tools)  
 **Purpose:** Single checklist of **what we have**, **what is partial**, and **what we must still implement** to match the **Enterprise prototype** (feature/function list only — not prototype UI stack or pixel design).
 
 **Related logs:** `antigravity-agent-works.md` (early Docker/auth fixes), `cursor-agent-works.md` (integration layer + login ops).
@@ -311,9 +311,7 @@ Use this as the **Antigravity / agent task list**. Each line is a deliverable.
 19. **Refunds** API + UI.
 20. **Multi-branch** operations dashboard.
 21. **VetOS Copilot** (advisory AI, phase 15).
-22. **Offline sync** (phase 14).
-23. **AWS deployment** (phase 16).
-24. **Redis**: rate limiting + distributed outbox lock (ShedLock).
+- [x] 23. **AWS deployment** (phase 16) — **DONE**. Production modular monolith deployed on AWS EC2 (t4g.small ARM64, Ubuntu 24.04 LTS, Caddy auto-TLS, Postgres 17 forced RLS, Redis 7, automated S3/EBS backups, and admin onboarding/password scripts).
 25. **E2E test suite** for web; expand API tests for new controllers.
 26. **Prototype navigation** optional: enterprise left sidebar matching mock (cosmetic; can keep grouped nav).
 

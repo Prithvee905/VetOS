@@ -158,3 +158,139 @@ The user was unable to run the VetOS application locally using `docker compose u
   - Docker Compose: Containers `vetos-postgres-1`, `vetos-redis-1`, `vetos-api-1`, and `vetos-web-1` running healthy.
   - Browser Subagent: Automated browser run verified login, dashboard KPIs, all 5 `/clinic` tabs, `/communications` message dispatch and PRM reminder run, `/leads` CRM, `/settings/services`, and `/settings/audit` compliance logs.
 
+---
+
+## 15. Comprehensive QA Auditing & Critical Defect Fixes (Pass 1 → Pass 3)
+
+### Defect 1: Standalone POS Invoicing Decoupled from Doctor Consultations
+- **Problem:** Clinicians and front-desk receptionists were unable to bill OTC products (shampoos, leashes, OTC flea meds) or direct clinic services without first attaching a formal medical consultation ID.
+- **Action Taken:** Decoupled consultation validation in `ClinicalWorkflowService.java` and `apps/web/src/app/clinic/page.tsx`. Enabled receptionists and cashiers to generate standalone point-of-sale invoices with direct payment capture.
+
+### Defect 2: Walk-In Calendar Schedule Collision
+- **Problem:** When emergency or walk-in patients were checked into the queue, the system scheduled them for an appointment time overlapping existing booked slots, triggering unique constraint violations in the database.
+- **Action Taken:** Created Flyway migration `V5__walkin_appointment_overlap.sql` and updated the Java booking service to allocate dedicated emergency/walk-in slot offsets without colliding with pre-booked appointments.
+
+### Defect 3: Reactive Multi-Branch Switcher Dropdown
+- **Problem:** Users with multi-branch access had no visual mechanism in the web shell to toggle their active working branch.
+- **Action Taken:** Built an active branch switcher dropdown in `apps/web/src/app/clinic/page.tsx` with instant reactive `localStorage` persistence and automatic tenant transaction context updates.
+
+### Defect 4: Staff Creation Role Lifecycle & Form Accessibility
+- **Problem:** When creating staff accounts (Receptionist, Doctor, Staff) under `/settings/users`, missing HTML form IDs and loose validation caused silent UI failures.
+- **Action Taken:** Added explicit IDs (`#email`, `#password`, `#displayName`, role checkboxes) and verified complete lifecycle in `apps/web/src/app/settings/users/page.tsx`.
+
+### Defect 5: Patient Modal Accessibility & Receptionist Access
+- **Problem:** Receptionist role was blocked from accessing patient registration and timeline modals due to missing role permission mappings.
+- **Action Taken:** Added `PATIENT_WRITE` to Receptionist permissions, added explicit modal accessibility attributes in `apps/web/src/app/patients/page.tsx`, and verified 7/7 QA test suite pass in `qa3-results.json` and `CLINICOS_QA_PASS_3_REPORT.md`.
+
+---
+
+## 16. Production Infrastructure & Security Hardening
+
+To support production pilot deployments without unnecessary cloud complexity (avoiding early Kubernetes/RDS/ECS overhead), built a hardened **Single-Instance Production Modular Monolith**:
+
+### 1. Multi-Container Production Compose (`docker-compose.prod.yml`)
+- **Containers:** Next.js (port 3000), Spring Boot 4.1.1 (port 8080), PostgreSQL 17 (port 5432), Redis 7 (port 6379), and Caddy 2 (ports 80 & 443).
+- **Hardening:**
+  - Database (5432) and Redis (6379) ports are strictly internal to the Docker bridge network; not exposed to host or internet.
+  - Health checks on all containers using netcat socket inspection (`nc -z`).
+  - Automatic container log rotation (`max-size: 20m`, `max-file: 5`).
+  - Container restart policies set to `unless-stopped`.
+  - Persistent EBS volumes for database, Redis, local blobs, and TLS certificates.
+
+### 2. Caddy Reverse Proxy & Automatic Let's Encrypt TLS (`docker/caddy/Caddyfile`)
+- Automatic HTTPS certificate provisioning via Let's Encrypt and ZeroSSL.
+- Path-based routing:
+  - `/*` → Proxied to Next.js (`web:3000`)
+  - `/api/*` → Proxied to Spring Boot (`api:8080`)
+- Security blocks:
+  - `/actuator/*` → Returns `403 Forbidden` (only `/actuator/health*` permitted).
+  - `/api/v1/platform-admin/*` → Returns `403 Forbidden` from public internet.
+- Standard HTTP security headers applied (HSTS, nosniff, SAMEORIGIN, Referrer-Policy, Permissions-Policy).
+
+### 3. Database Role Hardening & Disaster Recovery
+- Created unprivileged application role initializer: `docker/postgres/01-init-role.sh`.
+- Created automated backup script: `scripts/backup-postgres.sh` (compressed `pg_dump` with gzip, optional S3 upload with AES256, and 14-day rotation).
+- Created non-destructive recovery test script: `scripts/restore-test.sh` (verified: 41 tables restored, all records and forced RLS intact).
+- Full production documentation added in `docs/` (`production-deployment.md`, `backup-and-restore.md`, `disaster-recovery.md`, `security-hardening.md`, `rollback.md`).
+
+---
+
+## 17. AWS EC2 Cloud Provisioning & Live Launch
+
+- **Target Machine:** AWS EC2 `t4g.small` (ARM64 Graviton, Ubuntu 24.04 LTS, 30GB GP3 encrypted EBS) in `ap-south-1` (Mumbai).
+- **Swap Space:** Configured 2GB swap file to prevent memory pressure during builds.
+- **Production Config:** Generated `.env.production` with secure credentials and active profile `SPRING_PROFILES_ACTIVE=prod,dev`.
+- **First Launch:** Cloned repository to `~/VetOS/VetOS`, executed `./scripts/deploy.sh`.
+- **Domain:** Successfully live and serving over HTTPS with valid SSL padlock at `https://13.207.205.10.nip.io` (and dynamic IP `https://13.202.89.217.nip.io`).
+- **Automated Backup Schedule:** Configured daily 2:00 AM UTC cron job (`scripts/backup-postgres.sh`).
+
+---
+
+## 18. Critical Production Bugs Diagnosed & Resolved
+
+### 1. Caddy Crash Loop (`Exit Code 1`)
+- **Problem:** Caddy repeatedly crashed and restarted every 60 seconds on initial deployment.
+- **Root Cause:** In `docker/caddy/Caddyfile`, line 6 used nested variable syntax `{$APP_DOMAIN:{$DOMAIN_NAME:localhost}}`. Caddy's parser left a trailing curly brace (`}`), resulting in the host `13.207.205.10.nip.io}`, which failed hostname validation (`subject does not qualify for certificate`).
+- **Action Taken:** Fixed line 6 to `{$APP_DOMAIN:localhost} {`. Caddy validated cleanly and started serving HTTPS immediately.
+
+### 2. Flaky Container Healthchecks
+- **Problem:** BusyBox `wget --spider` inside alpine containers failed on HTTP 308 redirects and Next.js SSR paths, marking containers as `(unhealthy)`.
+- **Action Taken:** Replaced `wget` healthchecks in `docker-compose.prod.yml` with netcat socket checks (`nc -z 127.0.0.1 3000` and `nc -z 127.0.0.1 80 || nc -z 127.0.0.1 443`).
+
+### 3. Production Bootstrap Owner Seeding
+- **Problem:** When signing in on production, the API returned `Authentication failed` because `DevOwnerLoader` was annotated with `@Profile("dev")`, while production ran only `prod`.
+- **Action Taken:** Updated `SPRING_PROFILES_ACTIVE` to `prod,dev` in `docker-compose.prod.yml` and `.env.production`. When `api` booted, it seeded `owner@clinic.test` / `change-me-now` with `OWNER` role, allowing immediate login.
+
+---
+
+## 19. SaaS Super-Admin Clinic Onboarding & Password Governance (Option A)
+
+Built a secure, centralized administrative toolset allowing the SaaS founder to onboard client clinics and manage passwords with zero public internet attack surface:
+
+### 1. Internal Platform Admin API (`PlatformAdminController.java`)
+- **`POST /api/v1/platform-admin/onboard-clinic`**:
+  - Validates `X-Platform-Admin-Secret` header.
+  - Generates UUIDv7 for Clinic, Branch, and Owner User.
+  - Encodes client password using Argon2 (`Argon2PasswordEncoder`).
+  - Creates the new tenant under forced PostgreSQL Row-Level Security (RLS) and assigns the `OWNER` role.
+- **`POST /api/v1/platform-admin/reset-password`**:
+  - Validates `X-Platform-Admin-Secret` header.
+  - Queries user across all tenants via `app.find_login(email)`.
+  - Re-encodes new password with Argon2, resets failed login counters, unlocks the account, and updates the record.
+- **Security Guard:**
+  - Caddy reverses any public HTTP/HTTPS request to `/api/v1/platform-admin/*` with **`403 Forbidden`**.
+  - Spring Security permits internal execution only with valid `VETOS_PLATFORM_ADMIN_SECRET`.
+
+### 2. Administrator CLI Scripts
+- **Linux/AWS EC2 (Bash):**
+  - `./scripts/onboard-clinic.sh "<Clinic Name>" "<Owner Email>" "<Password>" ["<Display Name>"] ["<Branch Name>"]`
+  - `./scripts/reset-password.sh "<User Email>" "<New Password>"`
+- **Windows (PowerShell):**
+  - `.\scripts\onboard-clinic.ps1 -ClinicName "<Clinic>" -Email "<Email>" -Password "<Pass>"`
+  - `.\scripts\reset-password.ps1 -Email "<Email>" -NewPassword "<Pass>"`
+- **Verification:** Both scripts tested and verified successfully locally and in production.
+
+---
+
+## 20. CI/CD & GitHub Actions Fixes
+
+- **Problem:** GitHub Actions failed on commit `6a911fb` with `CI / api Failed in 4 seconds` and frontend test failures.
+- **Root Causes:**
+  1. `apps/api/mvnw` was tracked in Git without executable permission (mode `100644`), throwing `Permission denied` on Ubuntu GitHub runners.
+  2. `foundation-panel.test.tsx` rendered `<SignInPanel />` without `<QueryClientProvider>`.
+- **Action Taken:**
+  1. Ran `git update-index --chmod=+x apps/api/mvnw` (mode changed to `100755`) and added `chmod +x apps/api/mvnw` step in `.github/workflows/ci.yml`.
+  2. Wrapped test in `QueryClientProvider` (vitest passed 1/1, `npm run build` compiled 18/18 routes cleanly).
+  3. Pushed commit `4092bf9`, bringing CI back to green.
+
+---
+
+## 21. AWS Security Group & IP Management
+
+- **SSH Port 22 Locking:**
+  - Identified that browser-based EC2 Instance Connect originates from AWS's Mumbai CIDR (`13.233.177.0/29`), allowing Port 22 to be locked to AWS and the administrator's personal IP while blocking all public internet scanners.
+- **Dynamic IP Management:**
+  - Documented that stopping and restarting an EC2 instance reassigns a new public IP (`13.202.89.217`).
+  - Updated deployment instructions and `.env.production` sync commands accordingly.
+
+
