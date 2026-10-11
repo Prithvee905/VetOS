@@ -53,8 +53,9 @@ if [ ! -f "$PROJECT_ROOT/apps/api/target/vetos-api-0.0.1-SNAPSHOT.jar" ] && ! ls
 fi
 echo "[+] Backend jar artifact built successfully."
 
-# 4. Make DB init script executable
+# 4. Make DB init script and management scripts executable
 chmod +x "$PROJECT_ROOT/docker/postgres/01-init-role.sh" || true
+chmod +x "$PROJECT_ROOT"/scripts/*.sh || true
 
 # 5. Launch / Rebuild Production Stack
 echo "[+] Launching production containers via docker-compose.prod.yml..."
