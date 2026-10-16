@@ -46,7 +46,9 @@ public class InventoryControllers {
 		return inventoryService.createProduct(
 				auth.clinicId(),
 				auth.userId(),
-				new InventoryService.ProductCreateRequest(body.sku(), body.name(), body.unit(), body.salePrice()),
+				new InventoryService.ProductCreateRequest(
+						body.sku(), body.name(), body.unit(), body.salePrice(),
+						body.companyName(), body.distributorId(), body.purchasePrice()),
 				RequestIds.from(request));
 	}
 
@@ -70,7 +72,9 @@ public class InventoryControllers {
 		return inventoryService.createOrUpdateBatch(
 				auth.clinicId(),
 				auth.userId(),
-				new InventoryService.BatchCreateRequest(body.productId(), body.branchId(), body.initialQuantity(), body.expiresOn()),
+				new InventoryService.BatchCreateRequest(
+						body.productId(), body.branchId(), body.initialQuantity(), body.expiresOn(),
+						body.costPrice(), body.vendorId()),
 				RequestIds.from(request));
 	}
 
@@ -94,15 +98,23 @@ public class InventoryControllers {
 		return inventoryService.listMovements(auth.clinicId(), batchId);
 	}
 
+	@GetMapping("/inventory/movements")
+	public List<InventoryService.StockMovementDto> listAllMovements(
+			@AuthenticationPrincipal VetosAuthentication auth,
+			@RequestParam(required = false) UUID batchId,
+			@RequestParam(defaultValue = "50") int limit) {
+		return inventoryService.listMovements(auth.clinicId(), batchId, limit);
+	}
+
 	@PostMapping("/pharmacy/dispense")
 	public InventoryService.DispenseResponse dispensePrescription(
 			@AuthenticationPrincipal VetosAuthentication auth,
 			@Valid @RequestBody DispenseBody body,
 			HttpServletRequest request) {
 		authorizationSupport.requirePermission(auth, "INVENTORY_WRITE");
-		List<InventoryService.DispenseItem> items = body.items().stream()
-				.map(i -> new InventoryService.DispenseItem(i.batchId(), i.quantity()))
-				.toList();
+		List<InventoryService.DispenseItem> items = body.items() != null
+				? body.items().stream().map(i -> new InventoryService.DispenseItem(i.batchId(), i.quantity())).toList()
+				: List.of();
 		return inventoryService.dispensePrescription(
 				auth.clinicId(),
 				auth.userId(),
@@ -110,17 +122,38 @@ public class InventoryControllers {
 				RequestIds.from(request));
 	}
 
+	@PostMapping("/pharmacy/dispense-otc")
+	public InventoryService.DispenseResponse dispenseOtc(
+			@AuthenticationPrincipal VetosAuthentication auth,
+			@Valid @RequestBody DispenseOtcBody body,
+			HttpServletRequest request) {
+		authorizationSupport.requirePermission(auth, "INVENTORY_WRITE");
+		List<InventoryService.DispenseItem> items = body.items().stream()
+				.map(i -> new InventoryService.DispenseItem(i.batchId(), i.quantity()))
+				.toList();
+		return inventoryService.dispenseOtc(
+				auth.clinicId(),
+				auth.userId(),
+				new InventoryService.DispenseOtcRequest(items, body.notes()),
+				RequestIds.from(request));
+	}
+
 	public record ProductCreateBody(
 			@NotBlank String sku,
 			@NotBlank String name,
 			String unit,
-			@NotNull @DecimalMin("0.0") BigDecimal salePrice) {}
+			@NotNull @DecimalMin("0.0") BigDecimal salePrice,
+			String companyName,
+			UUID distributorId,
+			BigDecimal purchasePrice) {}
 
 	public record BatchCreateBody(
 			@NotNull UUID productId,
 			@NotNull UUID branchId,
 			@NotNull @DecimalMin("0.0") BigDecimal initialQuantity,
-			LocalDate expiresOn) {}
+			LocalDate expiresOn,
+			BigDecimal costPrice,
+			UUID vendorId) {}
 
 	public record StockAdjustmentBody(
 			@NotNull UUID batchId,
@@ -133,5 +166,9 @@ public class InventoryControllers {
 
 	public record DispenseBody(
 			@NotNull UUID prescriptionId,
-			@NotEmpty List<DispenseItemBody> items) {}
+			List<DispenseItemBody> items) {}
+
+	public record DispenseOtcBody(
+			@NotEmpty List<DispenseItemBody> items,
+			String notes) {}
 }

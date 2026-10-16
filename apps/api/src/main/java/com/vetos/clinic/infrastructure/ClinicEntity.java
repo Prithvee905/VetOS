@@ -36,8 +36,20 @@ public class ClinicEntity {
 
 	private String email;
 
-	@Column(nullable = false)
+	@Column(name = "status", nullable = false)
 	private String status;
+
+	@Column(name = "max_staff_discount_percent", nullable = false)
+	private BigDecimal maxStaffDiscountPercent = new BigDecimal("20.00");
+
+	@Column(name = "loyal_discount_percent", nullable = false)
+	private BigDecimal loyalDiscountPercent = new BigDecimal("30.00");
+
+	@Column(name = "ngo_consultation_discount_percent", nullable = false)
+	private BigDecimal ngoConsultationDiscountPercent = new BigDecimal("50.00");
+
+	@Column(name = "allow_medicine_discount", nullable = false)
+	private boolean allowMedicineDiscount = false;
 
 	@Column(name = "created_at", nullable = false)
 	private Instant createdAt;
@@ -114,6 +126,38 @@ public class ClinicEntity {
 
 	public void setStatus(String status) {
 		this.status = status;
+	}
+
+	public BigDecimal getMaxStaffDiscountPercent() {
+		return maxStaffDiscountPercent;
+	}
+
+	public void setMaxStaffDiscountPercent(BigDecimal maxStaffDiscountPercent) {
+		this.maxStaffDiscountPercent = maxStaffDiscountPercent;
+	}
+
+	public BigDecimal getLoyalDiscountPercent() {
+		return loyalDiscountPercent;
+	}
+
+	public void setLoyalDiscountPercent(BigDecimal loyalDiscountPercent) {
+		this.loyalDiscountPercent = loyalDiscountPercent;
+	}
+
+	public BigDecimal getNgoConsultationDiscountPercent() {
+		return ngoConsultationDiscountPercent;
+	}
+
+	public void setNgoConsultationDiscountPercent(BigDecimal ngoConsultationDiscountPercent) {
+		this.ngoConsultationDiscountPercent = ngoConsultationDiscountPercent;
+	}
+
+	public boolean isAllowMedicineDiscount() {
+		return allowMedicineDiscount;
+	}
+
+	public void setAllowMedicineDiscount(boolean allowMedicineDiscount) {
+		this.allowMedicineDiscount = allowMedicineDiscount;
 	}
 
 	public Instant getUpdatedAt() {

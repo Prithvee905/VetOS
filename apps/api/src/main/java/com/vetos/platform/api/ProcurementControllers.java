@@ -31,6 +31,7 @@ public class ProcurementControllers {
 
 	@GetMapping("/vendors")
 	public List<ProcurementService.VendorDto> listVendors(@AuthenticationPrincipal VetosAuthentication auth) {
+		authorizationSupport.requirePermission(auth, "VENDOR_WRITE");
 		return procurementService.listVendors(auth.clinicId());
 	}
 
@@ -44,12 +45,23 @@ public class ProcurementControllers {
 		return procurementService.createVendor(
 				auth.clinicId(),
 				auth.userId(),
-				new ProcurementService.VendorCreateRequest(body.name(), body.phone(), body.email()),
+				new ProcurementService.VendorCreateRequest(
+						body.name(),
+						body.distributorName(),
+						body.companyName(),
+						body.contactPerson(),
+						body.phone(),
+						body.email(),
+						body.address(),
+						body.gstin(),
+						body.dlNumber(),
+						body.notes()),
 				RequestIds.from(request));
 	}
 
 	@GetMapping("/purchases")
 	public List<ProcurementService.PurchaseOrderDto> listPurchaseOrders(@AuthenticationPrincipal VetosAuthentication auth) {
+		authorizationSupport.requirePermission(auth, "VENDOR_WRITE");
 		return procurementService.listPurchaseOrders(auth.clinicId());
 	}
 
@@ -57,6 +69,7 @@ public class ProcurementControllers {
 	public ProcurementService.PurchaseOrderDetailDto getPurchaseOrder(
 			@AuthenticationPrincipal VetosAuthentication auth,
 			@PathVariable UUID id) {
+		authorizationSupport.requirePermission(auth, "VENDOR_WRITE");
 		return procurementService.getPurchaseOrder(auth.clinicId(), id);
 	}
 
@@ -92,9 +105,16 @@ public class ProcurementControllers {
 	}
 
 	public record VendorCreateBody(
-			@NotBlank String name,
+			String name,
+			String distributorName,
+			String companyName,
+			String contactPerson,
 			String phone,
-			String email) {}
+			String email,
+			String address,
+			String gstin,
+			String dlNumber,
+			String notes) {}
 
 	public record PurchaseOrderLineBody(
 			@NotNull UUID productId,

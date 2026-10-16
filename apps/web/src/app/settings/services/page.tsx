@@ -102,7 +102,7 @@ export default function ServicesCatalogPage() {
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-600">Default Standard Price ($) *</label>
+            <label className="text-xs font-semibold text-slate-600">Default Standard Price (₹) *</label>
             <input
               type="number"
               placeholder="500"
@@ -156,7 +156,7 @@ export default function ServicesCatalogPage() {
                       <tr key={item.id} className="hover:bg-slate-50/70">
                         <td className="px-3 py-3 font-mono font-bold text-xs text-teal-800">{item.code}</td>
                         <td className="px-3 py-3 font-medium text-slate-900">{item.name}</td>
-                        <td className="px-3 py-3 font-semibold text-slate-800">${item.defaultPrice}</td>
+                        <td className="px-3 py-3 font-semibold text-slate-800">₹{item.defaultPrice}</td>
                         <td className="px-3 py-3">
                           <span
                             className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${

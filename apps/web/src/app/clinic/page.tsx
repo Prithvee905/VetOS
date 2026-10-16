@@ -18,15 +18,44 @@ import {
   listPatients,
   listProducts,
   listQueue,
+  reassignQueueDoctor,
   listServices,
   listUsers,
   recordPayment,
   updateQueueStatus,
+  updateClientCategory,
+  currentUser,
+  getClinicProfile,
+  sendWhatsApp,
+  sendEmail,
+  type SessionUser,
+  type ClinicProfile,
   type AppointmentItem,
+  type ClientCategory,
+  type ClientRow,
+  type PatientRow,
   type InvoiceRow,
   type PrescriptionRow,
   type QueueEntry,
 } from "@/lib/api";
+import { RecordSoapModal } from "@/components/record-soap-modal";
+import {
+  Printer,
+  Receipt,
+  Percent,
+  CheckCircle2,
+  AlertCircle,
+  Phone,
+  UserCheck,
+  Award,
+  Sparkles,
+  HeartHandshake,
+  MessageSquare,
+  Mail,
+  Send,
+  ExternalLink,
+} from "lucide-react";
+import { PrintableDocumentModal } from "@/components/printable-document-modal";
 
 type ActiveTab = "queue" | "appointments" | "soap" | "pos" | "register";
 
@@ -49,15 +78,55 @@ type RxLine = {
 type BasketLine = {
   id: string;
   sourceType: "PRESCRIPTION" | "SERVICE" | "PRODUCT" | "CUSTOM";
+  sourceId?: string;
   description: string;
   quantity: number;
   unitPrice: number;
   taxRate: number;
 };
 
+type CompletedPaymentReceipt = {
+  invoiceId: string;
+  invoiceNumber: string;
+  clientName: string;
+  clientPhone: string;
+  clientEmail?: string;
+  petName?: string;
+  total: number;
+  paymentMethod: string;
+  dateStr: string;
+  lines: { description: string; quantity: number; unitPrice: number; total: number }[];
+};
+
 export default function ClinicOperationsStation() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<ActiveTab>("queue");
+  const [soapModalOpen, setSoapModalOpen] = useState(false);
+  const [soapModalPatientId, setSoapModalPatientId] = useState("");
+  const [soapModalApptId, setSoapModalApptId] = useState("");
+  const [posPrintOpen, setPosPrintOpen] = useState(false);
+  const [completedReceipt, setCompletedReceipt] = useState<CompletedPaymentReceipt | null>(null);
+  const [waSending, setWaSending] = useState(false);
+  const [emailSending, setEmailSending] = useState(false);
+
+  const session = useQuery<SessionUser>({
+    queryKey: ["session"],
+    queryFn: currentUser,
+  });
+  const canHandlePOS = session.data?.roles.some((r) => ["OWNER", "RECEPTIONIST"].includes(r)) ?? false;
+  const isOwner = session.data?.roles.includes("OWNER") ?? false;
+  const isDoctor = (session.data?.roles.includes("DOCTOR") ?? false) && !isOwner;
+  const [queueDoctorScope, setQueueDoctorScope] = useState<"MY" | "ALL">("MY");
+  const [apptDoctorScope, setApptDoctorScope] = useState<"MY" | "ALL">("MY");
+
+  const clinicProfile = useQuery<ClinicProfile>({
+    queryKey: ["clinic-profile"],
+    queryFn: () => getClinicProfile(),
+  });
+  const maxStaffDiscountCap = Number(clinicProfile.data?.maxStaffDiscountPercent ?? 20);
+  const loyalDiscountCap = Number(clinicProfile.data?.loyalDiscountPercent ?? 30);
+  const ngoConsultationDiscountPercent = Number(clinicProfile.data?.ngoConsultationDiscountPercent ?? 50);
+  const defaultAllowMedicineDiscount = Boolean(clinicProfile.data?.allowMedicineDiscount ?? false);
 
   // Global data queries
   const branches = useQuery({ queryKey: ["branches"], queryFn: () => listBranches() });
@@ -68,6 +137,15 @@ export default function ClinicOperationsStation() {
   const allAppointments = useQuery({ queryKey: ["appointments"], queryFn: listAppointments, refetchInterval: 10_000 });
   const patients = useQuery({ queryKey: ["patients"], queryFn: () => listPatients() });
 
+  function matchesCurrentDoctor(docId?: string | null, docName?: string | null): boolean {
+    if (session.data?.id && docId && session.data.id === docId) return true;
+    const currentName = session.data?.displayName;
+    if (!currentName || !docName) return false;
+    const cleanDoc = docName.toLowerCase().replace(/dr\.?\s*/g, "").trim();
+    const cleanUser = currentName.toLowerCase().replace(/dr\.?\s*/g, "").trim();
+    return cleanDoc.includes(cleanUser) || cleanUser.includes(cleanDoc);
+  }
+
   const [selectedBranchId, setSelectedBranchId] = useState<string>(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("vetos_active_branch_id") || "";
@@ -75,7 +153,38 @@ export default function ClinicOperationsStation() {
     return "";
   });
 
-  const branchId = selectedBranchId || (branches.data?.items[0]?.id ?? "");
+  const branchList = branches.data?.items ?? [];
+  const validBranch = branchList.find((b) => b.id === selectedBranchId);
+  const branchId = validBranch ? validBranch.id : (branchList[0]?.id ?? "");
+
+  useEffect(() => {
+    if (branchId && branchId !== selectedBranchId) {
+      setSelectedBranchId(branchId);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("vetos_active_branch_id", branchId);
+      }
+    }
+  }, [branchId, selectedBranchId]);
+
+  useEffect(() => {
+    function handleGlobalBranch(e: Event) {
+      const custom = e as CustomEvent<{ branchId: string }>;
+      if (custom.detail?.branchId) {
+        setSelectedBranchId(custom.detail.branchId);
+      }
+    }
+    function handleStorage(e: StorageEvent) {
+      if (e.key === "vetos_active_branch_id" && e.newValue) {
+        setSelectedBranchId(e.newValue);
+      }
+    }
+    window.addEventListener("vetos-branch-changed", handleGlobalBranch);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("vetos-branch-changed", handleGlobalBranch);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
 
   // Queue query with live polling
   const queue = useQuery({
@@ -84,6 +193,24 @@ export default function ClinicOperationsStation() {
     enabled: Boolean(branchId),
     refetchInterval: 6_000,
   });
+
+  const allQueueItems = useMemo(() => queue.data ?? [], [queue.data]);
+  const myQueueItems = useMemo(() => {
+    return allQueueItems.filter((entry) => {
+      const doc = users.data?.items.find((u) => u.id === entry.doctorUserId);
+      return matchesCurrentDoctor(entry.doctorUserId, doc?.displayName);
+    });
+  }, [allQueueItems, users.data, session.data]);
+  const displayedQueueItems = (isDoctor && queueDoctorScope === "MY") ? myQueueItems : allQueueItems;
+
+  const allApptItems = useMemo(() => allAppointments.data ?? [], [allAppointments.data]);
+  const myApptItems = useMemo(() => {
+    return allApptItems.filter((appt) => {
+      const doc = users.data?.items.find((u) => u.id === appt.doctorUserId);
+      return matchesCurrentDoctor(appt.doctorUserId, doc?.displayName);
+    });
+  }, [allApptItems, users.data, session.data]);
+  const displayedApptItems = (isDoctor && apptDoctorScope === "MY") ? myApptItems : allApptItems;
 
   const defaultDoctors = [
     { id: "01a10a6a-31f7-7041-b2d0-05087cb15cf2", displayName: "Dr. Robert Smith", roles: ["DOCTOR"] },
@@ -95,6 +222,49 @@ export default function ClinicOperationsStation() {
     const list = (users.data?.items ?? []).filter((u) => u.roles.includes("DOCTOR") || u.roles.includes("OWNER"));
     return list.length > 0 ? list : defaultDoctors;
   }, [users.data]);
+
+  const doctorStats = useMemo(() => {
+    return doctors.map((doc) => {
+      const docEntries = (queue.data ?? []).filter((q) => q.doctorUserId === doc.id);
+      const consultingEntry = docEntries.find((q) => q.status === "IN_CONSULTATION");
+      const waitingEntries = docEntries.filter((q) => q.status === "WAITING");
+
+      const consultingPatient = consultingEntry
+        ? patients.data?.find((p) => p.id === consultingEntry.patientId)
+        : null;
+
+      const isConsulting = Boolean(consultingEntry);
+      const isFree = !isConsulting;
+
+      return {
+        id: doc.id,
+        displayName: doc.displayName,
+        roles: doc.roles,
+        isFree,
+        isConsulting,
+        consultingEntry,
+        consultingPatient,
+        waitingCount: waitingEntries.length,
+        waitingEntries,
+        totalAssigned: docEntries.length,
+      };
+    });
+  }, [doctors, queue.data, patients.data]);
+
+  const reassignMutation = useMutation({
+    mutationFn: async ({ queueId, doctorUserId }: { queueId: string; doctorUserId: string }) => {
+      return reassignQueueDoctor(queueId, doctorUserId);
+    },
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["queue"] });
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      const doc = doctors.find((d) => d.id === updated.doctorUserId);
+      notifySuccess(`Reassigned token #${updated.tokenNumber} to ${doc?.displayName ?? "new doctor"}!`);
+    },
+    onError: (err) => {
+      notifyError(err);
+    },
+  });
 
   // Notifications / feedback
   const [message, setMessage] = useState<string | null>(null);
@@ -123,8 +293,28 @@ export default function ClinicOperationsStation() {
   const [subjective, setSubjective] = useState("Owner reports pet is lethargic with mild reduced appetite.");
   const [historyNotes, setHistoryNotes] = useState("Vaccinated 6 months ago. No prior chronic conditions.");
 
-  // O - Objective
-  const [vitalsExam, setVitalsExam] = useState("Temp: 101.8 F | HR: 110 bpm | RR: 24 bpm | Mucous membranes: Pink, CRT < 2s | Hydration: Normal");
+  // O - Objective (Structured Vitals & Clinical Exam)
+  const [vitalsTemp, setVitalsTemp] = useState("101.8");
+  const [vitalsTempUnit, setVitalsTempUnit] = useState<"°F" | "°C">("°F");
+  const [vitalsHeartRate, setVitalsHeartRate] = useState("110");
+  const [vitalsRespRate, setVitalsRespRate] = useState("24");
+  const [vitalsWeight, setVitalsWeight] = useState("14.5");
+  const [vitalsMucousMembrane, setVitalsMucousMembrane] = useState("Pink (Normal)");
+  const [vitalsCrt, setVitalsCrt] = useState("< 2s (Normal)");
+  const [vitalsHydration, setVitalsHydration] = useState("Normal (< 5%)");
+  const [vitalsExamNotes, setVitalsExamNotes] = useState("Abdomen soft on palpation. Normal thoracic auscultation.");
+
+  const compiledVitalsExam = useMemo(() => {
+    const parts: string[] = [];
+    if (vitalsTemp) parts.push(`Temp: ${vitalsTemp} ${vitalsTempUnit}`);
+    if (vitalsHeartRate) parts.push(`HR: ${vitalsHeartRate} bpm`);
+    if (vitalsRespRate) parts.push(`RR: ${vitalsRespRate} bpm`);
+    if (vitalsWeight) parts.push(`Weight: ${vitalsWeight} kg`);
+    if (vitalsMucousMembrane) parts.push(`Mucous membranes: ${vitalsMucousMembrane}, CRT ${vitalsCrt}`);
+    if (vitalsHydration) parts.push(`Hydration: ${vitalsHydration}`);
+    if (vitalsExamNotes.trim()) parts.push(`Clinical findings: ${vitalsExamNotes.trim()}`);
+    return parts.join(" | ");
+  }, [vitalsTemp, vitalsTempUnit, vitalsHeartRate, vitalsRespRate, vitalsWeight, vitalsMucousMembrane, vitalsCrt, vitalsHydration, vitalsExamNotes]);
 
   // A - Assessment
   const [primaryDiagnosis, setPrimaryDiagnosis] = useState("Acute Gastritis / Dietary Indiscretion");
@@ -173,6 +363,7 @@ export default function ClinicOperationsStation() {
   // Unified Basket / POS State
   // ----------------------------------------------------
   const [basketClientId, setBasketClientId] = useState("");
+  const [basketPatientId, setBasketPatientId] = useState("");
   const [basketLines, setBasketLines] = useState<BasketLine[]>([
     { id: "1", sourceType: "SERVICE", description: "Standard Clinical Consultation", quantity: 1, unitPrice: 500, taxRate: 0 },
   ]);
@@ -182,6 +373,15 @@ export default function ClinicOperationsStation() {
   const [customItemPrice, setCustomItemPrice] = useState("250");
   const [paymentMethod, setPaymentMethod] = useState("UPI");
   const [issuedInvoice, setIssuedInvoice] = useState<InvoiceRow | null>(null);
+  const [discountPercent, setDiscountPercent] = useState<number>(0);
+  const [discountError, setDiscountError] = useState<string>("");
+  const [applyDiscountToMedicines, setApplyDiscountToMedicines] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (clinicProfile.data?.allowMedicineDiscount !== undefined) {
+      setApplyDiscountToMedicines(Boolean(clinicProfile.data.allowMedicineDiscount));
+    }
+  }, [clinicProfile.data?.allowMedicineDiscount]);
 
   useEffect(() => {
     try {
@@ -191,10 +391,72 @@ export default function ClinicOperationsStation() {
       if (savedBasket) setBasketLines(JSON.parse(savedBasket));
       const savedInv = localStorage.getItem("vetos_active_invoice");
       if (savedInv) setIssuedInvoice(JSON.parse(savedInv));
+      const savedPatientId = localStorage.getItem("vetos_active_basket_patient_id");
+      if (savedPatientId) setBasketPatientId(savedPatientId);
+      const savedClientId = localStorage.getItem("vetos_active_basket_client_id");
+      if (savedClientId) setBasketClientId(savedClientId);
     } catch {
       // ignore parse errors
     }
   }, []);
+
+  // Auto-resolve patient & client for the unified POS basket
+  const resolvedBasketPatient = useMemo(() => {
+    const allPatients = patients.data ?? [];
+    // 1. Explicit basketPatientId
+    if (basketPatientId) {
+      const found = allPatients.find((p) => p.id === basketPatientId);
+      if (found) return found;
+    }
+    // 2. Auto-detect from patient name mentioned in basket lines (e.g. "(bruno)" or "bruno")
+    for (const line of basketLines) {
+      for (const p of allPatients) {
+        if (p.name && p.name.length >= 2) {
+          const regex = new RegExp(`\\b${p.name}\\b`, "i");
+          if (regex.test(line.description)) {
+            return p;
+          }
+        }
+      }
+    }
+    // 3. Fallback to activePatientId if consultation is in progress
+    if (activePatientId) {
+      const found = allPatients.find((p) => p.id === activePatientId);
+      if (found) return found;
+    }
+    return null;
+  }, [patients.data, basketPatientId, basketLines, activePatientId]);
+
+  const resolvedBasketClient = useMemo(() => {
+    const allClients = clients.data ?? [];
+    if (resolvedBasketPatient?.clientId) {
+      const found = allClients.find((c) => c.id === resolvedBasketPatient.clientId);
+      if (found) return found;
+    }
+    if (basketClientId) {
+      const found = allClients.find((c) => c.id === basketClientId);
+      if (found) return found;
+    }
+    return null;
+  }, [clients.data, resolvedBasketPatient, basketClientId]);
+
+  function handleAssignBasketPatient(patientId: string) {
+    setBasketPatientId(patientId);
+    const p = (patients.data ?? []).find((pat) => pat.id === patientId);
+    if (p) {
+      setBasketClientId(p.clientId);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("vetos_active_basket_patient_id", p.id);
+        localStorage.setItem("vetos_active_basket_client_id", p.clientId);
+      }
+    } else {
+      setBasketClientId("");
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("vetos_active_basket_patient_id");
+        localStorage.removeItem("vetos_active_basket_client_id");
+      }
+    }
+  }
 
   // ----------------------------------------------------
   // Walk-In Registration State
@@ -202,11 +464,83 @@ export default function ClinicOperationsStation() {
   const [regClientName, setRegClientName] = useState("");
   const [regClientPhone, setRegClientPhone] = useState("");
   const [regClientEmail, setRegClientEmail] = useState("");
+  const [regCategory, setRegCategory] = useState<ClientCategory>("STANDARD");
   const [regPetName, setRegPetName] = useState("");
   const [regSpecies, setRegSpecies] = useState("CANINE");
   const [regBreed, setRegBreed] = useState("Golden Retriever");
-  const [regSize, setRegSize] = useState("MEDIUM");
-  const [regDoctorId, setRegDoctorId] = useState("01a10a6a-31f7-7041-b2d0-05087cb15cf2");
+  const [regDoctorId, setRegDoctorId] = useState("");
+
+  // Existing Client & Pet lookup for Walk-In
+  const [selectedExistingClientId, setSelectedExistingClientId] = useState<string | null>(null);
+  const [selectedExistingPatientId, setSelectedExistingPatientId] = useState<string | null>(null);
+  const [clientSearchQuery, setClientSearchQuery] = useState("");
+  const [showClientSuggestions, setShowClientSuggestions] = useState(false);
+
+  const matchingClients = useMemo(() => {
+    if (!clientSearchQuery.trim()) return [];
+    const q = clientSearchQuery.toLowerCase().trim();
+    return (clients.data ?? []).filter((c) => {
+      const nameMatch = c.displayName?.toLowerCase().includes(q);
+      const phoneMatch = c.phone?.toLowerCase().includes(q);
+      const petMatch = (patients.data ?? []).some(
+        (p) => p.clientId === c.id && p.name?.toLowerCase().includes(q)
+      );
+      return nameMatch || phoneMatch || petMatch;
+    });
+  }, [clients.data, patients.data, clientSearchQuery]);
+
+  const existingClientPets = useMemo(() => {
+    if (!selectedExistingClientId) return [];
+    return (patients.data ?? []).filter((p) => p.clientId === selectedExistingClientId);
+  }, [patients.data, selectedExistingClientId]);
+
+  function selectExistingClient(client: ClientRow) {
+    setSelectedExistingClientId(client.id);
+    setRegClientName(client.displayName);
+    setRegClientPhone(client.phone || "");
+    setRegCategory(client.category || "STANDARD");
+    setClientSearchQuery("");
+    setShowClientSuggestions(false);
+
+    const clientPets = (patients.data ?? []).filter((p) => p.clientId === client.id);
+    if (clientPets.length > 0) {
+      setSelectedExistingPatientId(clientPets[0].id);
+      setRegPetName(clientPets[0].name);
+      setRegSpecies(clientPets[0].speciesCode || "CANINE");
+    } else {
+      setSelectedExistingPatientId(null);
+      setRegPetName("");
+    }
+  }
+
+  function clearExistingClient() {
+    setSelectedExistingClientId(null);
+    setSelectedExistingPatientId(null);
+    setRegClientName("");
+    setRegClientPhone("");
+    setRegPetName("");
+    setRegCategory("STANDARD");
+    setClientSearchQuery("");
+  }
+
+  const changeClientCategoryMutation = useMutation({
+    mutationFn: async ({ clientId, category }: { clientId: string; category: ClientCategory }) => {
+      return updateClientCategory(clientId, category);
+    },
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      notifySuccess(
+        `Client category updated to ${
+          updated.category === "LOYAL"
+            ? "⭐ Loyal Customer"
+            : updated.category === "NGO"
+            ? "🐾 NGO / Rescue"
+            : "Standard Client"
+        }`
+      );
+    },
+    onError: notifyError,
+  });
 
   // ----------------------------------------------------
   // Actions: Queue Triage
@@ -243,7 +577,7 @@ export default function ClinicOperationsStation() {
         appointmentId: activeAppointmentId,
         subjective,
         history: historyNotes,
-        examination: vitalsExam,
+        examination: compiledVitalsExam,
         assessment: primaryDiagnosis,
         plan: treatmentPlan,
         diagnosis: primaryDiagnosis,
@@ -312,9 +646,15 @@ export default function ClinicOperationsStation() {
         });
       }
       setBasketLines(newLines);
+      if (activePatientId) {
+        setBasketPatientId(activePatientId);
+      }
       if (typeof window !== "undefined") {
         if (data.rx) localStorage.setItem("vetos_active_rx", JSON.stringify(data.rx));
         localStorage.setItem("vetos_active_basket", JSON.stringify(newLines));
+        if (activePatientId) {
+          localStorage.setItem("vetos_active_basket_patient_id", activePatientId);
+        }
       }
     },
     onError: notifyError,
@@ -323,9 +663,61 @@ export default function ClinicOperationsStation() {
   // ----------------------------------------------------
   // Actions: Unified Basket / Billing
   // ----------------------------------------------------
-  const basketTotal = useMemo(() => {
-    return basketLines.reduce((acc, line) => acc + line.quantity * line.unitPrice, 0);
+  const servicesSubtotal = useMemo(() => {
+    return basketLines
+      .filter((line) => line.sourceType === "SERVICE" || line.sourceType === "CUSTOM")
+      .reduce((acc, line) => acc + line.quantity * line.unitPrice, 0);
   }, [basketLines]);
+
+  const medicinesSubtotal = useMemo(() => {
+    return basketLines
+      .filter((line) => line.sourceType === "PRODUCT" || line.sourceType === "PRESCRIPTION")
+      .reduce((acc, line) => acc + line.quantity * line.unitPrice, 0);
+  }, [basketLines]);
+
+  const basketTotal = useMemo(() => {
+    return servicesSubtotal + medicinesSubtotal;
+  }, [servicesSubtotal, medicinesSubtotal]);
+
+  const currentCategory: ClientCategory = resolvedBasketClient?.category || "STANDARD";
+
+  const effectiveStaffCap = useMemo(() => {
+    if (isOwner) return 100;
+    if (currentCategory === "LOYAL") return loyalDiscountCap;
+    if (currentCategory === "NGO") return Math.max(ngoConsultationDiscountPercent, maxStaffDiscountCap);
+    return maxStaffDiscountCap;
+  }, [isOwner, currentCategory, loyalDiscountCap, ngoConsultationDiscountPercent, maxStaffDiscountCap]);
+
+  function handleDiscountChange(valStr: string) {
+    const parsed = Math.max(0, Math.min(100, parseFloat(valStr) || 0));
+    if (!isOwner && parsed > effectiveStaffCap) {
+      setDiscountError(
+        `Staff discount cap for ${
+          currentCategory === "LOYAL"
+            ? "Loyal Customers"
+            : currentCategory === "NGO"
+            ? "NGO Rescues"
+            : "standard clients"
+        } is ${effectiveStaffCap}%. Only clinic OWNER can grant higher.`
+      );
+      setDiscountPercent(effectiveStaffCap);
+    } else {
+      setDiscountError("");
+      setDiscountPercent(parsed);
+    }
+  }
+
+  const discountAmount = useMemo(() => {
+    if (applyDiscountToMedicines) {
+      return Number(((basketTotal * discountPercent) / 100).toFixed(2));
+    } else {
+      return Number(((servicesSubtotal * discountPercent) / 100).toFixed(2));
+    }
+  }, [basketTotal, servicesSubtotal, discountPercent, applyDiscountToMedicines]);
+
+  const finalTotal = useMemo(() => {
+    return Math.max(0, Number((basketTotal - discountAmount).toFixed(2)));
+  }, [basketTotal, discountAmount]);
 
   function addServiceToBasket() {
     if (!selectedServiceId) return;
@@ -354,6 +746,7 @@ export default function ClinicOperationsStation() {
       {
         id: `prod-${p.id}-${Date.now()}`,
         sourceType: "PRODUCT",
+        sourceId: p.id,
         description: p.name,
         quantity: 1,
         unitPrice: p.salePrice,
@@ -390,35 +783,41 @@ export default function ClinicOperationsStation() {
         throw new Error("Cannot issue invoice for an empty basket.");
       }
 
-      if (lastPrescription) {
-        const linePrices = lastPrescription.items.map((item) => {
-          // match in basket or default
-          const match = basketLines.find((b) => b.description.includes(item.medicineName));
-          return {
-            prescriptionItemId: item.id,
-            unitPrice: match ? match.unitPrice : 150,
-          };
-        });
-        return issueInvoice({
-          prescriptionId: lastPrescription.id,
-          linePrices,
-        });
+      if (!isOwner && discountPercent > effectiveStaffCap) {
+        throw new Error(
+          `Discount exceeds staff cap of ${effectiveStaffCap}%. Only clinic OWNER can authorize higher discounts.`
+        );
       }
 
-      // Standalone POS sale (Retail / Service / Counter Walk-in)
-      const lines = basketLines.map((line) => ({
-        sourceType: line.sourceType || "CUSTOM",
-        description: line.description,
-        quantity: line.quantity,
-        unitPrice: line.unitPrice,
-        discountAmount: 0,
-        taxRate: line.taxRate || 0,
-      }));
+      // Standalone POS sale (Consultation / Services / Prescriptions / Retail Products)
+      const lines = basketLines.map((line) => {
+        const lineGross = line.quantity * line.unitPrice;
+        const isMedicine = line.sourceType === "PRODUCT" || line.sourceType === "PRESCRIPTION";
+        let lineDiscount = 0;
+
+        if (isMedicine && !applyDiscountToMedicines) {
+          lineDiscount = 0;
+        } else if (applyDiscountToMedicines) {
+          lineDiscount = basketTotal > 0 ? Number(((lineGross / basketTotal) * discountAmount).toFixed(2)) : 0;
+        } else {
+          lineDiscount = servicesSubtotal > 0 ? Number(((lineGross / servicesSubtotal) * discountAmount).toFixed(2)) : 0;
+        }
+
+        return {
+          sourceType: line.sourceType || "CUSTOM",
+          sourceId: line.sourceId || (line.id?.startsWith("prod-") ? line.id.split("-")[1] : undefined),
+          description: line.description,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          discountAmount: lineDiscount,
+          taxRate: line.taxRate || 0,
+        };
+      });
 
       return issueInvoice({
         branchId: branchId || undefined,
-        patientId: activePatientId || undefined,
-        clientId: basketClientId || undefined,
+        patientId: resolvedBasketPatient?.id || activePatientId || undefined,
+        clientId: resolvedBasketClient?.id || basketClientId || undefined,
         lines,
       });
     },
@@ -427,7 +826,7 @@ export default function ClinicOperationsStation() {
       if (typeof window !== "undefined") {
         localStorage.setItem("vetos_active_invoice", JSON.stringify(inv));
       }
-      notifySuccess(`Invoice #${inv.invoiceNumber} created. Total due: $${inv.total}`);
+      notifySuccess(`Invoice #${inv.invoiceNumber} created. Total due: ₹${inv.total}`);
     },
     onError: notifyError,
   });
@@ -440,17 +839,106 @@ export default function ClinicOperationsStation() {
       await recordPayment(issuedInvoice.id, String(remaining), idempotencyKey, paymentMethod);
     },
     onSuccess: () => {
-      notifySuccess("Payment received and settled successfully! Receipt marked PAID.");
+      if (issuedInvoice) {
+        const client = clients.data?.find((c) => c.id === basketClientId || (activePatientId && c.id === patients.data?.find((p) => p.id === activePatientId)?.clientId));
+        const pet = patients.data?.find((p) => p.id === (basketPatientId || activePatientId));
+        setCompletedReceipt({
+          invoiceId: issuedInvoice.id,
+          invoiceNumber: issuedInvoice.invoiceNumber,
+          clientName: client?.displayName || "Clinic Walk-In Client",
+          clientPhone: client?.phone || "",
+          clientEmail: client?.email || "",
+          petName: pet?.name || "Patient",
+          total: Number(issuedInvoice.total) || finalTotal,
+          paymentMethod,
+          dateStr: new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }),
+          lines: (issuedInvoice.lines && issuedInvoice.lines.length > 0)
+            ? issuedInvoice.lines.map((l) => ({
+                description: l.description,
+                quantity: 1,
+                unitPrice: Number(l.lineTotal) || 0,
+                total: Number(l.lineTotal) || 0,
+              }))
+            : basketLines.map((b) => ({
+                description: b.description,
+                quantity: b.quantity,
+                unitPrice: b.unitPrice,
+                total: b.quantity * b.unitPrice,
+              })),
+        });
+      }
+
+      notifySuccess("Payment received and settled! Prescription marked DISPENSED & inventory deducted automatically.");
+      queryClient.invalidateQueries({ queryKey: ["pharmacy-batches"] });
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["prescriptions"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory-movements"] });
       setIssuedInvoice(null);
       setBasketLines([]);
+      setBasketPatientId("");
+      setBasketClientId("");
       if (typeof window !== "undefined") {
         localStorage.removeItem("vetos_active_rx");
         localStorage.removeItem("vetos_active_basket");
         localStorage.removeItem("vetos_active_invoice");
+        localStorage.removeItem("vetos_active_basket_patient_id");
+        localStorage.removeItem("vetos_active_basket_client_id");
       }
     },
     onError: notifyError,
   });
+
+  async function handleWhatsAppReceipt(receipt: CompletedPaymentReceipt) {
+    if (!receipt.clientPhone) {
+      notifyError("No phone number registered for this client.");
+      return;
+    }
+    const cleanPhone = receipt.clientPhone.replace(/\D/g, "");
+    const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+    const msg = `*PAWCARE SUPER SPECIALTY PET HOSPITAL*\nOfficial Invoice Receipt\n-------------------------------\nInvoice: #${receipt.invoiceNumber}\nDate: ${receipt.dateStr}\nClient: ${receipt.clientName}\nPatient: ${receipt.petName || "Pet"}\nPayment: ${receipt.paymentMethod} (PAID)\nTotal Amount: ₹${receipt.total.toFixed(2)}\n-------------------------------\nThank you for trusting PawCare Clinic! For appointments & queries, call our front desk.`;
+
+    setWaSending(true);
+    try {
+      await sendWhatsApp({
+        to: formattedPhone,
+        body: msg,
+      });
+      notifySuccess(`WhatsApp receipt queued for ${receipt.clientPhone}`);
+    } catch {
+      notifySuccess(`Opening WhatsApp chat with ${receipt.clientPhone}…`);
+    } finally {
+      setWaSending(false);
+      if (typeof window !== "undefined") {
+        window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, "_blank");
+      }
+    }
+  }
+
+  async function handleEmailReceipt(receipt: CompletedPaymentReceipt) {
+    let emailTo = receipt.clientEmail;
+    if (!emailTo) {
+      const emailInput = window.prompt("Enter client email address to send invoice receipt:", "");
+      if (!emailInput || !emailInput.trim()) return;
+      emailTo = emailInput.trim();
+      receipt.clientEmail = emailTo;
+    }
+    const subject = `PawCare Pet Hospital - Official Invoice Receipt #${receipt.invoiceNumber}`;
+    const body = `Dear ${receipt.clientName},\n\nThank you for visiting PawCare Super Specialty Pet Hospital.\n\nHere are your payment details:\n- Invoice Number: #${receipt.invoiceNumber}\n- Date: ${receipt.dateStr}\n- Patient: ${receipt.petName || "Pet"}\n- Amount Paid: ₹${receipt.total.toFixed(2)}\n- Payment Mode: ${receipt.paymentMethod}\n\nItems:\n${receipt.lines.map((l) => `• ${l.description} x ${l.quantity} = ₹${l.total.toFixed(2)}`).join("\n")}\n\nTotal Paid: ₹${receipt.total.toFixed(2)}\nStatus: PAID\n\nWarm regards,\nPawCare Veterinary Hospital Team`;
+
+    setEmailSending(true);
+    try {
+      await sendEmail({
+        to: emailTo,
+        subject,
+        body,
+      });
+      notifySuccess(`Invoice receipt emailed to ${emailTo}`);
+    } catch (err: unknown) {
+      notifyError(err instanceof Error ? err.message : "Failed to send email");
+    } finally {
+      setEmailSending(false);
+    }
+  }
 
   // ----------------------------------------------------
   // Actions: Walk-In Registration
@@ -460,31 +948,51 @@ export default function ClinicOperationsStation() {
       if (!regClientName || !regPetName || !regDoctorId) {
         throw new Error("Please fill in Owner Name, Pet Name, and Assigned Doctor.");
       }
+      if (!branchId) {
+        throw new Error("No active clinic branch found. Please ensure a branch exists.");
+      }
 
-      // 1. Client
-      const client = await createClient({
-        displayName: regClientName,
-        phone: regClientPhone || "9999999999",
-        email: regClientEmail || undefined,
-        consentWhatsapp: true,
-        consentEmail: true,
-      });
+      let clientId = selectedExistingClientId;
+      let patientId = selectedExistingPatientId;
+      let petName = regPetName;
 
-      // 2. Patient
-      const patient = await createPatient({
-        clientId: client.id,
-        name: regPetName,
-        speciesCode: regSpecies,
-        breed: regBreed,
-        sizeCategory: regSize,
-      });
+      // 1. Client: if not existing, create new
+      if (!clientId) {
+        const client = await createClient({
+          displayName: regClientName,
+          phone: regClientPhone || "9999999999",
+          email: regClientEmail || undefined,
+          consentWhatsapp: true,
+          consentEmail: true,
+          category: regCategory,
+        });
+        clientId = client.id;
+      } else if (regCategory) {
+        const existingClient = (clients.data ?? []).find((c) => c.id === clientId);
+        if (existingClient && existingClient.category !== regCategory) {
+          await updateClientCategory(clientId, regCategory);
+        }
+      }
+
+      // 2. Patient: if not existing, create new under this client
+      if (!patientId) {
+        const patient = await createPatient({
+          clientId,
+          name: regPetName,
+          speciesCode: regSpecies,
+          breed: regBreed,
+          sizeCategory: "MEDIUM",
+        });
+        patientId = patient.id;
+        petName = patient.name;
+      }
 
       // 3. Appointment (Now)
       const now = new Date();
       const end = new Date(now.getTime() + 30 * 60 * 1000);
       const appt = await createAppointment({
         branchId,
-        patientId: patient.id,
+        patientId,
         doctorUserId: regDoctorId,
         startsAt: now.toISOString(),
         endsAt: end.toISOString(),
@@ -499,16 +1007,13 @@ export default function ClinicOperationsStation() {
       await queryClient.invalidateQueries({ queryKey: ["appointments"] });
       await queryClient.invalidateQueries({ queryKey: ["queue"] });
 
-      return { client, patient, appt, token: qEntry.tokenNumber };
+      return { petName, token: qEntry.tokenNumber };
     },
     onSuccess: (res) => {
-      notifySuccess(`Walk-in registered! ${res.patient.name} checked in as Queue Token #${res.token}`);
-      setRegClientName("");
-      setRegPetName("");
-      setRegClientPhone("");
+      notifySuccess(`Walk-in checked in! ${res.petName} assigned Queue Token #${res.token}`);
+      clearExistingClient();
       setActiveTab("queue");
     },
-    onError: notifyError,
   });
 
   return (
@@ -591,23 +1096,25 @@ export default function ClinicOperationsStation() {
             )}
           </button>
 
-          <button
-            onClick={() => setActiveTab("pos")}
-            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
-              activeTab === "pos"
-                ? "bg-teal-700 text-white shadow-sm"
-                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-            }`}
-          >
-            <span>Unified Basket & POS</span>
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs font-bold ${
-                activeTab === "pos" ? "bg-teal-900 text-teal-100" : "bg-slate-300 text-slate-800"
+          {canHandlePOS && (
+            <button
+              onClick={() => setActiveTab("pos")}
+              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
+                activeTab === "pos"
+                  ? "bg-teal-700 text-white shadow-sm"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
               }`}
             >
-              {basketLines.length}
-            </span>
-          </button>
+              <span>Unified Basket & POS</span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                  activeTab === "pos" ? "bg-teal-900 text-teal-100" : "bg-slate-300 text-slate-800"
+                }`}
+              >
+                {basketLines.length}
+              </span>
+            </button>
+          )}
 
           <button
             onClick={() => setActiveTab("register")}
@@ -665,26 +1172,229 @@ export default function ClinicOperationsStation() {
             </Button>
           </div>
 
+          {/* Real-Time Doctor Availability Board */}
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-50 border border-teal-200 text-teal-800 text-base font-bold shadow-2xs">
+                  👨‍⚕️
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <span>Attending Doctors Live Status &amp; Availability</span>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                      Live Triage
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Real-time doctor occupancy for Branch: <span className="font-semibold text-slate-700">{validBranch?.name ?? "Main"}</span>. Check who is free before assigning patients.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 px-2.5 py-0.5 font-bold shadow-2xs">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                  {doctorStats.filter((d) => d.isFree).length} Free Now
+                </span>
+                {doctorStats.some((d) => d.isConsulting) && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 border border-rose-200 text-rose-800 px-2.5 py-0.5 font-bold shadow-2xs">
+                    <span className="h-2 w-2 rounded-full bg-rose-500" />
+                    {doctorStats.filter((d) => d.isConsulting).length} In Consult
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Doctor Status Cards Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+              {doctorStats.map((d) => {
+                const isFree = d.isFree;
+                return (
+                  <div
+                    key={d.id}
+                    className={`rounded-xl border p-3.5 transition-all flex flex-col justify-between ${
+                      d.isConsulting
+                        ? "border-rose-200 bg-rose-50/40 shadow-xs"
+                        : d.waitingCount > 0
+                        ? "border-amber-200 bg-amber-50/40"
+                        : "border-emerald-200 bg-emerald-50/30 shadow-xs ring-1 ring-emerald-500/20"
+                    }`}
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                            {d.displayName}
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            {d.roles.includes("OWNER") ? "Clinic Director / Doctor" : "Attending Doctor"}
+                          </p>
+                        </div>
+                        {d.isConsulting ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 text-rose-800 border border-rose-300 px-2 py-0.5 text-[10px] font-bold">
+                            <span className="h-1.5 w-1.5 rounded-full bg-rose-600" />
+                            Busy (In Consult)
+                          </span>
+                        ) : d.waitingCount > 0 ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 text-[10px] font-bold">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-600" />
+                            {d.waitingCount} in Queue
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 text-[10px] font-bold">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                            Free &amp; Ready
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Current Patient info */}
+                      {d.isConsulting ? (
+                        <div className="rounded-lg bg-white/90 border border-rose-200 p-2 text-xs">
+                          <p className="text-[11px] text-rose-900 font-semibold flex items-center gap-1">
+                            <span>🩺 In room with:</span>
+                            <span className="font-bold underline">{d.consultingPatient?.name || "Patient"}</span>
+                          </p>
+                          <p className="text-[10px] text-slate-500 mt-0.5">
+                            Token #{d.consultingEntry?.tokenNumber} • {d.waitingCount} more waiting in line
+                          </p>
+                        </div>
+                      ) : d.waitingCount > 0 ? (
+                        <div className="rounded-lg bg-white/90 border border-amber-200 p-2 text-xs">
+                          <p className="text-[11px] text-amber-900 font-semibold">
+                            Next in line: Token #{d.waitingEntries[0]?.tokenNumber}
+                          </p>
+                          <p className="text-[10px] text-slate-500 mt-0.5">
+                            Available after current queue
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="rounded-lg bg-white/90 border border-emerald-200 p-2 text-xs">
+                          <p className="text-[11px] text-emerald-800 font-semibold flex items-center gap-1">
+                            <span>✨ Free right now</span>
+                          </p>
+                          <p className="text-[10px] text-slate-500 mt-0.5">
+                            0 patients in waiting line • Ready immediately
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Action button */}
+                    <div className="mt-3 pt-2 border-t border-slate-200/60 flex items-center justify-between">
+                      <span className="text-[11px] text-slate-500 font-medium">
+                        {d.totalAssigned} total in queue
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRegDoctorId(d.id);
+                          setActiveTab("register");
+                        }}
+                        className={`text-xs font-bold px-2.5 py-1 rounded-md transition flex items-center gap-1 ${
+                          isFree && d.waitingCount === 0
+                            ? "bg-emerald-700 hover:bg-emerald-800 text-white shadow-2xs"
+                            : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                        }`}
+                      >
+                        + Assign Patient
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Doctor Scope Toggle for Live Queue */}
+          {isDoctor && (
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-700">Triage Scope:</span>
+                <div className="flex rounded-lg bg-slate-100 p-0.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setQueueDoctorScope("MY")}
+                    className={`rounded px-3 py-1 font-bold text-xs transition-all ${
+                      queueDoctorScope === "MY"
+                        ? "bg-white text-teal-800 shadow-2xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    👤 My Patients ({myQueueItems.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQueueDoctorScope("ALL")}
+                    className={`rounded px-3 py-1 font-bold text-xs transition-all ${
+                      queueDoctorScope === "ALL"
+                        ? "bg-white text-teal-800 shadow-2xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    🏥 All Clinic ({allQueueItems.length})
+                  </button>
+                </div>
+              </div>
+
+              {queueDoctorScope === "MY" ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-teal-800 font-medium bg-teal-50 px-2.5 py-1 rounded-md border border-teal-200">
+                    Showing only patients assigned to <strong>{session.data?.displayName}</strong>
+                  </span>
+                  {allQueueItems.length > myQueueItems.length && (
+                    <button
+                      type="button"
+                      onClick={() => setQueueDoctorScope("ALL")}
+                      className="text-xs font-bold text-teal-700 hover:text-teal-900 underline"
+                    >
+                      Show other {allQueueItems.length - myQueueItems.length} clinic patients →
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <span className="text-xs text-slate-500 bg-slate-50 px-2.5 py-1 rounded-md border border-slate-200">
+                  Viewing full hospital queue ({allQueueItems.length} patients)
+                </span>
+              )}
+            </div>
+          )}
+
           {queue.isLoading ? (
             <p className="text-sm text-slate-500 py-8">Loading queue records…</p>
-          ) : (queue.data ?? []).length === 0 ? (
+          ) : displayedQueueItems.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-12 text-center">
-              <p className="text-base font-semibold text-slate-700">No patients currently in queue</p>
+              <p className="text-base font-semibold text-slate-700">
+                {isDoctor && queueDoctorScope === "MY"
+                  ? `No waiting patients currently assigned to ${session.data?.displayName || "you"}`
+                  : "No patients currently in queue"}
+              </p>
               <p className="text-sm text-slate-500 mt-1">
-                Check in an existing appointment or register a walk-in patient.
+                {isDoctor && queueDoctorScope === "MY" && allQueueItems.length > 0
+                  ? `There are ${allQueueItems.length} patient(s) waiting in the clinic queue.`
+                  : "Check in an existing appointment or register a walk-in patient."}
               </p>
               <div className="mt-4 flex justify-center gap-3">
-                <Button size="sm" onClick={() => setActiveTab("appointments")}>
-                  View Appointments
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setActiveTab("register")}>
-                  Register Walk-In
-                </Button>
+                {isDoctor && queueDoctorScope === "MY" && allQueueItems.length > 0 ? (
+                  <Button size="sm" onClick={() => setQueueDoctorScope("ALL")}>
+                    Switch to All Clinic Queue ({allQueueItems.length})
+                  </Button>
+                ) : (
+                  <>
+                    <Button size="sm" onClick={() => setActiveTab("appointments")}>
+                      View Appointments
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setActiveTab("register")}>
+                      Register Walk-In
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {queue.data?.map((entry) => {
+              {displayedQueueItems.map((entry) => {
                 const isEmergency = entry.priority === "EMERGENCY";
                 const isConsulting = entry.status === "IN_CONSULTATION";
                 const doctor = users.data?.items.find((u) => u.id === entry.doctorUserId);
@@ -707,12 +1417,30 @@ export default function ClinicOperationsStation() {
                         </span>
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Token #{entry.tokenNumber}</p>
-                          <p className="text-sm font-bold text-slate-900">
-                            {patients.data?.find((p) => p.id === entry.patientId)?.name ?? `Patient ${entry.patientId.slice(0, 8)}…`}
-                          </p>
-                          <p className="text-[11px] text-slate-500">
-                            {patients.data?.find((p) => p.id === entry.patientId)?.speciesCode ?? ""}
-                          </p>
+                          {(() => {
+                            const qPatient = patients.data?.find((p) => p.id === entry.patientId);
+                            const qClient = clients.data?.find((c) => c.id === qPatient?.clientId);
+                            return (
+                              <div>
+                                <p className="text-sm font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                                  <span>{qPatient?.name ?? `Patient ${entry.patientId.slice(0, 8)}…`}</span>
+                                  {qClient?.category === "LOYAL" && (
+                                    <span className="rounded bg-amber-100 border border-amber-300 text-amber-900 px-1.5 py-0.2 text-[10px] font-bold">
+                                      ⭐ Loyal
+                                    </span>
+                                  )}
+                                  {qClient?.category === "NGO" && (
+                                    <span className="rounded bg-emerald-100 border border-emerald-300 text-emerald-900 px-1.5 py-0.2 text-[10px] font-bold">
+                                      🐾 NGO Rescue
+                                    </span>
+                                  )}
+                                </p>
+                                <p className="text-[11px] text-slate-500">
+                                  {qPatient?.speciesCode ?? ""} {qClient ? `• Client: ${qClient.displayName}` : ""}
+                                </p>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
 
@@ -738,12 +1466,50 @@ export default function ClinicOperationsStation() {
                       </div>
                     </div>
 
-                    <div className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-600 space-y-1">
-                      <p>
-                        <span className="text-slate-400 font-medium">Doctor:</span>{" "}
-                        <span className="font-semibold text-slate-800">{doctor?.displayName ?? "Any available"}</span>
-                      </p>
-                      <p>
+                    <div className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-600 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p>
+                          <span className="text-slate-400 font-medium">Doctor:</span>{" "}
+                          <span className="font-semibold text-slate-800">{doctor?.displayName ?? "Any available"}</span>
+                        </p>
+                        {/* Live status badge of assigned doctor */}
+                        {(() => {
+                          const docStat = doctorStats.find((d) => d.id === entry.doctorUserId);
+                          if (isConsulting) {
+                            return <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">In Consult Now</span>;
+                          }
+                          if (docStat?.isConsulting) {
+                            return <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">Doctor with another patient</span>;
+                          }
+                          return <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">Doctor Free Now</span>;
+                        })()}
+                      </div>
+
+                      {/* Reassign transfer selector */}
+                      {!isConsulting && (
+                        <div className="flex items-center gap-2 pt-1">
+                          <label className="text-[11px] text-slate-500 font-medium shrink-0">Transfer:</label>
+                          <select
+                            className="text-xs rounded border border-slate-200 bg-white px-2 py-1 text-slate-700 focus:outline-none focus:border-teal-600 flex-1"
+                            value={entry.doctorUserId}
+                            disabled={reassignMutation.isPending}
+                            onChange={(e) => {
+                              const newDocId = e.target.value;
+                              if (newDocId && newDocId !== entry.doctorUserId) {
+                                reassignMutation.mutate({ queueId: entry.id, doctorUserId: newDocId });
+                              }
+                            }}
+                          >
+                            {doctorStats.map((d) => (
+                              <option key={d.id} value={d.id}>
+                                {d.displayName} — {d.isFree ? "🟢 Free Now" : `🔴 In Consult (${d.consultingPatient?.name || "Patient"})`}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      <p className="text-[11px]">
                         <span className="text-slate-400 font-medium">Checked in:</span>{" "}
                         {new Date(entry.checkedInAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </p>
@@ -798,11 +1564,65 @@ export default function ClinicOperationsStation() {
             </Button>
           </div>
 
+          {/* Doctor Scope Toggle for Appointments */}
+          {isDoctor && (
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-700">Roster Scope:</span>
+                <div className="flex rounded-lg bg-slate-100 p-0.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setApptDoctorScope("MY")}
+                    className={`rounded px-3 py-1 font-bold text-xs transition-all ${
+                      apptDoctorScope === "MY"
+                        ? "bg-white text-teal-800 shadow-2xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    👤 My Appointments ({myApptItems.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setApptDoctorScope("ALL")}
+                    className={`rounded px-3 py-1 font-bold text-xs transition-all ${
+                      apptDoctorScope === "ALL"
+                        ? "bg-white text-teal-800 shadow-2xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    🏥 All Appointments ({allApptItems.length})
+                  </button>
+                </div>
+              </div>
+
+              {apptDoctorScope === "MY" ? (
+                <span className="text-xs text-teal-800 font-medium bg-teal-50 px-2.5 py-1 rounded-md border border-teal-200">
+                  Showing appointments for <strong>{session.data?.displayName}</strong>
+                </span>
+              ) : (
+                <span className="text-xs text-slate-500 bg-slate-50 px-2.5 py-1 rounded-md border border-slate-200">
+                  Viewing all clinic doctors' appointments
+                </span>
+              )}
+            </div>
+          )}
+
           {allAppointments.isLoading ? (
             <p className="text-sm text-slate-500 py-8">Loading schedule…</p>
-          ) : (allAppointments.data ?? []).length === 0 ? (
+          ) : displayedApptItems.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-12 text-center">
-              <p className="text-base font-semibold text-slate-700">No scheduled appointments found</p>
+              <p className="text-base font-semibold text-slate-700">
+                {isDoctor && apptDoctorScope === "MY"
+                  ? `No appointments found for ${session.data?.displayName || "you"}`
+                  : "No scheduled appointments found"}
+              </p>
+              {isDoctor && apptDoctorScope === "MY" && allApptItems.length > 0 && (
+                <div className="mt-3">
+                  <Button size="sm" variant="outline" onClick={() => setApptDoctorScope("ALL")}>
+                    View All Clinic Appointments ({allApptItems.length})
+                  </Button>
+                </div>
+              )}
               <Button className="mt-3" size="sm" onClick={() => setActiveTab("register")}>
                 Book First Appointment
               </Button>
@@ -821,7 +1641,7 @@ export default function ClinicOperationsStation() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {allAppointments.data?.map((appt) => {
+                  {displayedApptItems.map((appt) => {
                     const doc = users.data?.items.find((u) => u.id === appt.doctorUserId);
                     const canCheckIn = appt.status === "SCHEDULED" || appt.status === "CONFIRMED";
 
@@ -909,13 +1729,30 @@ export default function ClinicOperationsStation() {
             <div>
               <p className="text-xs font-bold uppercase tracking-wider text-teal-800">Active Consultation Session</p>
               <div className="flex flex-wrap items-center gap-3 mt-1">
-                <span className="text-sm font-semibold text-slate-900">
-                  Patient: <span className="font-mono text-teal-900">{activePatientId ? activePatientId.slice(0, 10) + "…" : "None selected"}</span>
-                </span>
-                <span className="text-slate-300">|</span>
-                <span className="text-sm font-semibold text-slate-900">
-                  Appointment: <span className="font-mono text-teal-900">{activeAppointmentId ? activeAppointmentId.slice(0, 10) + "…" : "None"}</span>
-                </span>
+                {(() => {
+                  const activePatient = patients.data?.find((p) => p.id === activePatientId);
+                  const activeClient = clients.data?.find((c) => c.id === activePatient?.clientId);
+                  return (
+                    <>
+                      <span className="text-sm font-semibold text-slate-900">
+                        Patient:{" "}
+                        <span className="text-teal-900 font-bold">
+                          {activePatient
+                            ? `${activePatient.name} (${activePatient.speciesCode})`
+                            : "None selected"}
+                        </span>
+                      </span>
+                      {activeClient && (
+                        <>
+                          <span className="text-slate-300">|</span>
+                          <span className="text-sm font-semibold text-slate-900">
+                            Owner: <span className="text-slate-800 font-bold">{activeClient.displayName}</span>
+                          </span>
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
 
@@ -929,7 +1766,7 @@ export default function ClinicOperationsStation() {
               </Button>
               <Button
                 size="sm"
-                className="bg-teal-700 hover:bg-teal-800 text-white"
+                className="bg-teal-700 hover:bg-teal-800 text-white font-bold"
                 onClick={() => submitSoapConsultation.mutate()}
                 disabled={!activeAppointmentId || submitSoapConsultation.isPending}
               >
@@ -937,6 +1774,36 @@ export default function ClinicOperationsStation() {
               </Button>
             </div>
           </div>
+
+          {!activeAppointmentId && (queue.data ?? []).length > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-amber-900">
+                Patients Waiting in Today's Queue:
+              </p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Click a waiting patient to load their chart and start consultation:
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {queue.data?.map((entry) => {
+                  const p = patients.data?.find((pat) => pat.id === entry.patientId);
+                  return (
+                    <button
+                      key={entry.id}
+                      onClick={() => startConsultationForQueueEntry(entry)}
+                      className="flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-2xs hover:bg-amber-100 hover:border-amber-400 transition"
+                    >
+                      <span className="rounded bg-teal-700 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        #{entry.tokenNumber}
+                      </span>
+                      <span>{p?.name ?? "Patient"}</span>
+                      <span className="text-[10px] text-slate-500">({p?.speciesCode ?? ""})</span>
+                      <span className="text-teal-700 font-bold">Start →</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* S: Subjective */}
@@ -968,21 +1835,173 @@ export default function ClinicOperationsStation() {
             </div>
 
             {/* O: Objective */}
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm flex flex-col gap-3">
-              <div className="flex items-center gap-2">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-teal-800 text-xs font-bold text-white">
-                  O
+            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-teal-800 text-xs font-bold text-white">
+                    O
+                  </span>
+                  <h3 className="text-base font-bold text-slate-900">Objective (Vitals & Physical Exam)</h3>
+                </div>
+                <span className="text-[11px] font-semibold text-teal-800 bg-teal-50 border border-teal-200 px-2.5 py-0.5 rounded-full">
+                  Structured TPR Grid
                 </span>
-                <h3 className="text-base font-bold text-slate-900">Objective (Vitals & Physical Exam)</h3>
               </div>
+
+              {/* Vitals Input Grid: Pre-built fields with units */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {/* Temperature */}
+                <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-2.5">
+                  <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wide block">
+                    Temperature
+                  </label>
+                  <div className="mt-1 flex items-center">
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="101.5"
+                      value={vitalsTemp}
+                      onChange={(e) => setVitalsTemp(e.target.value)}
+                      className="w-full rounded-l border border-slate-300 bg-white p-1.5 text-sm font-bold text-slate-800 focus:border-teal-600 focus:outline-none"
+                    />
+                    <select
+                      value={vitalsTempUnit}
+                      onChange={(e) => setVitalsTempUnit(e.target.value as "°F" | "°C")}
+                      className="rounded-r border-y border-r border-slate-300 bg-slate-100 p-1.5 text-xs font-bold text-slate-700 focus:outline-none"
+                    >
+                      <option value="°F">°F</option>
+                      <option value="°C">°C</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Heart Rate */}
+                <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-2.5">
+                  <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wide block">
+                    Heart Rate (HR)
+                  </label>
+                  <div className="mt-1 flex items-center">
+                    <input
+                      type="number"
+                      placeholder="110"
+                      value={vitalsHeartRate}
+                      onChange={(e) => setVitalsHeartRate(e.target.value)}
+                      className="w-full rounded-l border border-slate-300 bg-white p-1.5 text-sm font-bold text-slate-800 focus:border-teal-600 focus:outline-none"
+                    />
+                    <span className="rounded-r border-y border-r border-slate-300 bg-slate-100 px-2 py-1.5 text-xs font-semibold text-slate-600">
+                      bpm
+                    </span>
+                  </div>
+                </div>
+
+                {/* Respiratory Rate */}
+                <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-2.5">
+                  <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wide block">
+                    Respiration (RR)
+                  </label>
+                  <div className="mt-1 flex items-center">
+                    <input
+                      type="number"
+                      placeholder="24"
+                      value={vitalsRespRate}
+                      onChange={(e) => setVitalsRespRate(e.target.value)}
+                      className="w-full rounded-l border border-slate-300 bg-white p-1.5 text-sm font-bold text-slate-800 focus:border-teal-600 focus:outline-none"
+                    />
+                    <span className="rounded-r border-y border-r border-slate-300 bg-slate-100 px-2 py-1.5 text-xs font-semibold text-slate-600">
+                      bpm
+                    </span>
+                  </div>
+                </div>
+
+                {/* Weight */}
+                <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-2.5">
+                  <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wide block">
+                    Body Weight
+                  </label>
+                  <div className="mt-1 flex items-center">
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="14.5"
+                      value={vitalsWeight}
+                      onChange={(e) => setVitalsWeight(e.target.value)}
+                      className="w-full rounded-l border border-slate-300 bg-white p-1.5 text-sm font-bold text-slate-800 focus:border-teal-600 focus:outline-none"
+                    />
+                    <span className="rounded-r border-y border-r border-slate-300 bg-slate-100 px-2 py-1.5 text-xs font-semibold text-slate-600">
+                      kg
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Physical Status Selectors: MM, CRT, Hydration */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700">Mucous Membranes (MM)</label>
+                  <select
+                    value={vitalsMucousMembrane}
+                    onChange={(e) => setVitalsMucousMembrane(e.target.value)}
+                    className="mt-1 w-full rounded border border-slate-300 bg-white p-2 text-xs font-medium text-slate-800 focus:border-teal-600 focus:outline-none"
+                  >
+                    <option value="Pink (Normal)">Pink (Normal)</option>
+                    <option value="Pale">Pale / Anemic</option>
+                    <option value="Congested / Injected">Congested / Injected</option>
+                    <option value="Icteric (Jaundice)">Icteric (Jaundice / Yellow)</option>
+                    <option value="Cyanotic (Blue)">Cyanotic (Blue / Hypoxic)</option>
+                    <option value="Dry / Tacky">Dry / Tacky</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700">Capillary Refill Time (CRT)</label>
+                  <select
+                    value={vitalsCrt}
+                    onChange={(e) => setVitalsCrt(e.target.value)}
+                    className="mt-1 w-full rounded border border-slate-300 bg-white p-2 text-xs font-medium text-slate-800 focus:border-teal-600 focus:outline-none"
+                  >
+                    <option value="< 2s (Normal)">&lt; 2 seconds (Normal)</option>
+                    <option value="2-3s (Borderline)">2 - 3 seconds (Borderline)</option>
+                    <option value="> 3s (Prolonged)">&gt; 3 seconds (Prolonged)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700">Hydration Status</label>
+                  <select
+                    value={vitalsHydration}
+                    onChange={(e) => setVitalsHydration(e.target.value)}
+                    className="mt-1 w-full rounded border border-slate-300 bg-white p-2 text-xs font-medium text-slate-800 focus:border-teal-600 focus:outline-none"
+                  >
+                    <option value="Normal (< 5%)">Normal (&lt; 5% loss)</option>
+                    <option value="Mild (5-7%)">Mild Dehydration (5-7%)</option>
+                    <option value="Moderate (8-10%)">Moderate Dehydration (8-10%)</option>
+                    <option value="Severe (> 10%)">Severe Dehydration (&gt; 10%)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Clinical Observations & Palpation Notes */}
               <div>
-                <label className="text-xs font-semibold text-slate-600">Physical Exam, TPR & Clinical Observations</label>
+                <label className="text-xs font-semibold text-slate-700">
+                  Clinical Examination & Palpation Observations
+                </label>
                 <textarea
-                  rows={5}
-                  className="mt-1 w-full rounded-md border border-slate-300 p-2.5 text-sm focus:border-teal-600 focus:outline-none font-mono text-xs"
-                  value={vitalsExam}
-                  onChange={(e) => setVitalsExam(e.target.value)}
+                  rows={2}
+                  className="mt-1 w-full rounded-md border border-slate-300 p-2.5 text-xs text-slate-800 focus:border-teal-600 focus:outline-none"
+                  placeholder="e.g. Abdomen soft, no palpable masses, thoracic auscultation unremarkable, lymph nodes normal..."
+                  value={vitalsExamNotes}
+                  onChange={(e) => setVitalsExamNotes(e.target.value)}
                 />
+              </div>
+
+              {/* Live Formatted Summary Bar */}
+              <div className="rounded-lg bg-teal-50/70 border border-teal-200/80 p-2.5 text-xs text-teal-900 flex flex-wrap items-center gap-2">
+                <span className="font-bold uppercase tracking-wider text-[10px] text-teal-700 bg-teal-100 px-2 py-0.5 rounded">
+                  Record Preview:
+                </span>
+                <span className="font-mono text-[11px] text-teal-950 flex-1">
+                  {compiledVitalsExam}
+                </span>
               </div>
             </div>
 
@@ -1202,7 +2221,7 @@ export default function ClinicOperationsStation() {
               >
                 {submitSoapConsultation.isPending ? "Finalizing…" : "Finalize Consult & Rx ✓"}
               </Button>
-              {lastPrescription && (
+              {canHandlePOS && lastPrescription && (
                 <Button
                   variant="outline"
                   onClick={() => setActiveTab("pos")}
@@ -1218,7 +2237,7 @@ export default function ClinicOperationsStation() {
       {/* ========================================================================= */}
       {/* TAB 4: UNIFIED INVOICE BASKET & POS                                       */}
       {/* ========================================================================= */}
-      {activeTab === "pos" && (
+      {canHandlePOS && activeTab === "pos" && (
         <div className="flex flex-col gap-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
@@ -1228,10 +2247,94 @@ export default function ClinicOperationsStation() {
               </p>
             </div>
             {issuedInvoice && (
-              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">
-                Invoice #{issuedInvoice.invoiceNumber} Ready for Payment
-              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  id="btn-print-pos-header"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPosPrintOpen(true)}
+                  className="flex items-center gap-1.5 border-teal-300 text-teal-800 bg-teal-50 hover:bg-teal-100"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  Print Receipt / Slip
+                </Button>
+                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">
+                  Invoice #{issuedInvoice.invoiceNumber} Ready for Payment
+                </span>
+              </div>
             )}
+          </div>
+
+          {/* Customer & Patient Identification Banner */}
+          <div className="rounded-xl border border-teal-200 bg-gradient-to-r from-teal-50/70 via-emerald-50/40 to-white p-4 shadow-sm">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-teal-600 text-white shadow-sm font-bold text-xl">
+                  {resolvedBasketPatient ? (resolvedBasketPatient.name[0]?.toUpperCase() || "🐾") : "👤"}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-teal-700">
+                      Billed Patient & Pet Owner
+                    </span>
+                    {resolvedBasketPatient ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800">
+                        <CheckCircle2 className="h-3 w-3" /> Linked to Bill
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold text-amber-800">
+                        <AlertCircle className="h-3 w-3" /> Walk-In / Unassigned
+                      </span>
+                    )}
+                  </div>
+                  {resolvedBasketPatient ? (
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                      <span className="font-bold text-slate-900 text-base">
+                        🐾 {resolvedBasketPatient.name}
+                      </span>
+                      <span className="rounded bg-teal-100 px-2 py-0.5 text-[11px] font-bold text-teal-800 uppercase">
+                        {resolvedBasketPatient.speciesCode}
+                      </span>
+                      <span className="text-slate-500 font-medium">
+                        • Owner: <strong className="text-slate-800 font-bold">{resolvedBasketClient?.displayName || "Unknown Owner"}</strong>
+                      </span>
+                      {resolvedBasketClient?.phone && (
+                        <span className="flex items-center gap-1 text-slate-700 font-semibold text-xs bg-white px-2 py-0.5 rounded border border-slate-200">
+                          <Phone className="h-3 w-3 text-teal-600" /> {resolvedBasketClient.phone}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      No client or patient selected. Choose below to link this bill to a specific pet owner.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Patient & Owner Quick Switcher */}
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold text-slate-600 whitespace-nowrap">
+                  Switch / Assign Pet:
+                </label>
+                <select
+                  id="select-pos-patient"
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm focus:border-teal-500 focus:outline-none"
+                  value={resolvedBasketPatient?.id || ""}
+                  onChange={(e) => handleAssignBasketPatient(e.target.value)}
+                >
+                  <option value="">-- Unassigned Walk-In / Retail Counter --</option>
+                  {(patients.data ?? []).map((pat) => {
+                    const owner = (clients.data ?? []).find((c) => c.id === pat.clientId);
+                    return (
+                      <option key={pat.id} value={pat.id}>
+                        {pat.name} ({pat.speciesCode}) — Owner: {owner?.displayName || "Unknown"} {owner?.phone ? `(📞 ${owner.phone})` : ""}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1312,46 +2415,390 @@ export default function ClinicOperationsStation() {
             {/* Middle/Right: Basket Items & Payment */}
             <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-5 shadow-sm flex flex-col justify-between">
               <div>
-                <h3 className="text-base font-bold text-slate-900 border-b border-slate-100 pb-3">Current Cart Items</h3>
+                {/* 1-Click WhatsApp & Email Receipt Dispatch Banner */}
+                {completedReceipt && (
+                  <div className="mb-4 rounded-xl border-2 border-emerald-300 bg-gradient-to-r from-emerald-50 via-teal-50/60 to-white p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-xs">
+                          <CheckCircle2 className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-emerald-900 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full">
+                              ✓ Paid via {completedReceipt.paymentMethod}
+                            </span>
+                            <span className="text-xs text-slate-500 font-medium">#{completedReceipt.invoiceNumber}</span>
+                          </div>
+                          <p className="text-sm font-extrabold text-slate-900 mt-0.5">
+                            ₹{completedReceipt.total.toFixed(2)} Collected • {completedReceipt.clientName} ({completedReceipt.petName})
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setCompletedReceipt(null)}
+                        className="text-slate-400 hover:text-slate-700 text-xs font-bold p-1 cursor-pointer"
+                        title="Dismiss"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="mt-3.5 flex flex-wrap items-center gap-2 pt-2 border-t border-emerald-200/80">
+                      <button
+                        type="button"
+                        id="btn-whatsapp-invoice"
+                        onClick={() => handleWhatsAppReceipt(completedReceipt)}
+                        disabled={waSending}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 text-xs font-bold shadow-2xs transition active:scale-95 cursor-pointer"
+                      >
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        <span>{waSending ? "Sending…" : "Send on WhatsApp"}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        id="btn-email-invoice"
+                        onClick={() => handleEmailReceipt(completedReceipt)}
+                        disabled={emailSending}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-sky-700 hover:bg-sky-800 text-white px-3 py-1.5 text-xs font-bold shadow-2xs transition active:scale-95 cursor-pointer"
+                      >
+                        <Mail className="h-3.5 w-3.5" />
+                        <span>{emailSending ? "Sending…" : "Send via Email"}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        id="btn-print-pos-success"
+                        onClick={() => setPosPrintOpen(true)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 px-3 py-1.5 text-xs font-bold shadow-2xs transition active:scale-95 cursor-pointer"
+                      >
+                        <Printer className="h-3.5 w-3.5 text-slate-600" />
+                        <span>Print Receipt</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setCompletedReceipt(null)}
+                        className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 ml-auto cursor-pointer"
+                      >
+                        + Start New Sale
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between border-b border-slate-100 pb-3 gap-2">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Current Cart Items</h3>
+                    {resolvedBasketPatient && (
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
+                        <p className="text-xs text-teal-700 font-medium">
+                          Patient: <strong className="font-bold text-slate-900">{resolvedBasketPatient.name}</strong> • Client: <strong className="font-bold text-slate-900">{resolvedBasketClient?.displayName || "Unknown"}</strong> {resolvedBasketClient?.phone ? `(📞 ${resolvedBasketClient.phone})` : ""}
+                        </p>
+                        {resolvedBasketClient && (
+                          <div className="inline-flex items-center gap-1.5 ml-1">
+                            {currentCategory === "LOYAL" ? (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 border border-amber-300 text-amber-800 px-2 py-0.5 text-[11px] font-bold">
+                                ⭐ Loyal Customer ({loyalDiscountCap}% Cap)
+                              </span>
+                            ) : currentCategory === "NGO" ? (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 border border-emerald-300 text-emerald-800 px-2 py-0.5 text-[11px] font-bold">
+                                🐾 NGO / Stray Rescue ({ngoConsultationDiscountPercent}% Consultation)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 border border-slate-200 text-slate-700 px-2 py-0.5 text-[11px] font-semibold">
+                                Standard Client
+                              </span>
+                            )}
+
+                            {/* Dropdown to switch client category on the fly */}
+                            <select
+                              aria-label="Client category"
+                              className="text-[10px] font-semibold bg-white border border-slate-300 rounded px-1.5 py-0.5 text-slate-600 hover:border-teal-600 focus:outline-none"
+                              value={currentCategory}
+                              onChange={(e) => {
+                                if (resolvedBasketClient?.id) {
+                                  changeClientCategoryMutation.mutate({
+                                    clientId: resolvedBasketClient.id,
+                                    category: e.target.value as ClientCategory,
+                                  });
+                                }
+                              }}
+                            >
+                              <option value="STANDARD">Standard Client</option>
+                              <option value="LOYAL">⭐ Loyal Customer</option>
+                              <option value="NGO">🐾 NGO / Rescue</option>
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-xs font-semibold bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full">
+                    {basketLines.length} line item{basketLines.length === 1 ? "" : "s"}
+                  </span>
+                </div>
 
                 {basketLines.length === 0 ? (
                   <p className="text-sm text-slate-400 py-10 text-center">The basket is empty. Add services or products above.</p>
                 ) : (
                   <div className="divide-y divide-slate-100 mt-2">
-                    {basketLines.map((line, index) => (
-                      <div key={line.id} className="py-3 flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-800">{line.description}</p>
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                            {line.sourceType}
-                          </span>
+                    {basketLines.map((line, index) => {
+                      const isMed = line.sourceType === "PRODUCT" || line.sourceType === "PRESCRIPTION";
+                      return (
+                        <div key={line.id} className="py-3 flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-800">{line.description}</p>
+                            <span
+                              className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                                isMed
+                                  ? "bg-purple-100 text-purple-800 border border-purple-200"
+                                  : "bg-teal-100 text-teal-800 border border-teal-200"
+                              }`}
+                            >
+                              {line.sourceType === "PRESCRIPTION"
+                                ? "💊 Prescribed Medicine"
+                                : line.sourceType === "PRODUCT"
+                                ? "📦 Pharmacy Product"
+                                : "🩺 Consultation / Procedure"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <span className="text-sm text-slate-500">
+                              {line.quantity} × ₹{line.unitPrice}
+                            </span>
+                            <span className="text-sm font-bold text-slate-900 w-20 text-right">
+                              ₹{line.quantity * line.unitPrice}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => removeBasketLine(index)}
+                              className="text-slate-400 hover:text-rose-600 font-bold ml-2"
+                            >
+                              ✕
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-4">
-                          <span className="text-sm text-slate-500">
-                            {line.quantity} × ${line.unitPrice}
-                          </span>
-                          <span className="text-sm font-bold text-slate-900 w-20 text-right">
-                            ${line.quantity * line.unitPrice}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => removeBasketLine(index)}
-                            className="text-slate-400 hover:text-rose-600 font-bold ml-2"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
               {/* Basket Total & Checkout Strip */}
-              <div className="border-t border-slate-200 pt-4 mt-6">
-                <div className="flex justify-between items-center text-lg font-bold text-slate-900">
-                  <span>Grand Total</span>
-                  <span className="text-2xl text-teal-800">${basketTotal}</span>
+              <div className="border-t border-slate-200 pt-4 mt-6 space-y-3">
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center text-sm font-semibold text-slate-600">
+                    <span>Basket Subtotal</span>
+                    <span>₹{basketTotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>Consultation / Services: ₹{servicesSubtotal.toFixed(2)}</span>
+                    <span>Medicines / Products: ₹{medicinesSubtotal.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                {/* Counter Discount Controls */}
+                <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-bold text-slate-800">Counter Discount:</span>
+                      <div className="flex items-center">
+                        <input
+                          id="input-pos-discount"
+                          type="number"
+                          min="0"
+                          max={isOwner ? 100 : effectiveStaffCap}
+                          value={discountPercent}
+                          onChange={(e) => handleDiscountChange(e.target.value)}
+                          className="w-16 rounded-md border border-slate-300 bg-white p-1 text-xs font-bold text-slate-800 text-center shadow-xs focus:ring-1 focus:ring-teal-600"
+                        />
+                        <span className="ml-1 text-xs font-bold text-slate-500">%</span>
+                      </div>
+
+                      {/* Tier Badge / Policy Cap info */}
+                      {isOwner ? (
+                        <span className="rounded bg-amber-100 text-amber-800 px-2 py-0.5 text-[10px] font-bold">
+                          👑 Owner Override (Uncapped)
+                        </span>
+                      ) : currentCategory === "LOYAL" ? (
+                        <span className="rounded bg-amber-100 border border-amber-300 text-amber-900 px-2 py-0.5 text-[10px] font-bold">
+                          ⭐ Loyal Customer Cap: {loyalDiscountCap}% Max
+                        </span>
+                      ) : currentCategory === "NGO" ? (
+                        <span className="rounded bg-emerald-100 border border-emerald-300 text-emerald-900 px-2 py-0.5 text-[10px] font-bold">
+                          🐾 NGO Rescue Tier: {ngoConsultationDiscountPercent}% Flat on Consultation
+                        </span>
+                      ) : (
+                        <span className="rounded bg-slate-200 text-slate-700 px-2 py-0.5 text-[10px] font-semibold">
+                          Staff Cap: {maxStaffDiscountCap}% Max
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="text-right">
+                      <span className="text-sm font-bold text-rose-600">
+                        {discountAmount > 0 ? `-₹${discountAmount.toFixed(2)}` : "₹0.00"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Quick Presets for Customer Tiers */}
+                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    <span className="text-[11px] font-semibold text-slate-500 mr-1">Quick Presets:</span>
+                    {currentCategory === "NGO" && (
+                      <button
+                        type="button"
+                        id="btn-apply-ngo-discount"
+                        onClick={() => {
+                          setDiscountPercent(ngoConsultationDiscountPercent);
+                          setDiscountError("");
+                        }}
+                        className={`text-[11px] font-bold px-2.5 py-1 rounded-md border transition-all ${
+                          discountPercent === ngoConsultationDiscountPercent
+                            ? "bg-emerald-600 text-white border-emerald-700 shadow-xs"
+                            : "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
+                        }`}
+                      >
+                        🐾 Apply NGO {ngoConsultationDiscountPercent}% Rescue Discount (Consultation)
+                      </button>
+                    )}
+                    {currentCategory === "LOYAL" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDiscountPercent(10);
+                            setDiscountError("");
+                          }}
+                          className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
+                            discountPercent === 10 ? "bg-amber-600 text-white" : "bg-white text-slate-700 border-slate-200"
+                          }`}
+                        >
+                          10%
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDiscountPercent(20);
+                            setDiscountError("");
+                          }}
+                          className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
+                            discountPercent === 20 ? "bg-amber-600 text-white" : "bg-white text-slate-700 border-slate-200"
+                          }`}
+                        >
+                          20%
+                        </button>
+                        <button
+                          type="button"
+                          id="btn-apply-loyal-max"
+                          onClick={() => {
+                            setDiscountPercent(loyalDiscountCap);
+                            setDiscountError("");
+                          }}
+                          className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
+                            discountPercent === loyalDiscountCap
+                              ? "bg-amber-600 text-white border-amber-700"
+                              : "bg-amber-50 text-amber-900 border-amber-300"
+                          }`}
+                        >
+                          ⭐ {loyalDiscountCap}% (Loyal Max)
+                        </button>
+                      </>
+                    )}
+                    {currentCategory === "STANDARD" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDiscountPercent(5);
+                            setDiscountError("");
+                          }}
+                          className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
+                            discountPercent === 5 ? "bg-teal-700 text-white" : "bg-white text-slate-700 border-slate-200"
+                          }`}
+                        >
+                          5%
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDiscountPercent(10);
+                            setDiscountError("");
+                          }}
+                          className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
+                            discountPercent === 10 ? "bg-teal-700 text-white" : "bg-white text-slate-700 border-slate-200"
+                          }`}
+                        >
+                          10%
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDiscountPercent(maxStaffDiscountCap);
+                            setDiscountError("");
+                          }}
+                          className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
+                            discountPercent === maxStaffDiscountCap ? "bg-teal-700 text-white" : "bg-white text-slate-700 border-slate-200"
+                          }`}
+                        >
+                          {maxStaffDiscountCap}% (Max)
+                        </button>
+                      </>
+                    )}
+                    {discountPercent > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDiscountPercent(0);
+                          setDiscountError("");
+                        }}
+                        className="text-[10px] text-slate-400 hover:text-slate-600 underline ml-1"
+                      >
+                        Reset (0%)
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Medicine Discount Toggle */}
+                  <div className="border-t border-slate-200/80 pt-2.5">
+                    <label className="flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        id="checkbox-apply-medicine-discount"
+                        type="checkbox"
+                        checked={applyDiscountToMedicines}
+                        onChange={(e) => setApplyDiscountToMedicines(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                      />
+                      <div className="text-xs">
+                        <span className="font-bold text-slate-800">
+                          Apply discount to medicines & prescriptions also
+                        </span>
+                        {applyDiscountToMedicines ? (
+                          <p className="text-[11px] text-teal-800 mt-0.5 font-medium">
+                            💊 Discount applies to full basket (services ₹{servicesSubtotal.toFixed(2)} + medicines ₹{medicinesSubtotal.toFixed(2)} = ₹{basketTotal.toFixed(2)})
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-emerald-800 mt-0.5 font-medium flex items-center gap-1">
+                            🛡️ <strong>Medicine Margins Protected:</strong> 0% discount on medicines (₹{medicinesSubtotal.toFixed(2)} full price). Discount applies strictly to Consultation & Procedure fees (₹{servicesSubtotal.toFixed(2)} eligible).
+                          </p>
+                        )}
+                      </div>
+                    </label>
+                  </div>
+
+                  {discountError && (
+                    <p className="text-[11px] font-semibold text-rose-600 mt-1.5 flex items-center gap-1">
+                      ⚠️ {discountError}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex justify-between items-center text-lg font-bold text-slate-900 pt-1 border-t border-dashed border-slate-200">
+                  <span>Net Grand Total</span>
+                  <span className="text-2xl text-teal-800">₹{finalTotal.toFixed(2)}</span>
                 </div>
 
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-4 bg-slate-50 rounded-lg p-3 border border-slate-200">
@@ -1380,15 +2827,27 @@ export default function ClinicOperationsStation() {
                         {issueUnifiedInvoiceMutation.isPending ? "Issuing…" : "Issue Official Invoice"}
                       </Button>
                     ) : (
-                      <Button
-                        id="btn-collect-payment"
-                        size="sm"
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-                        onClick={() => payUnifiedInvoiceMutation.mutate()}
-                        disabled={payUnifiedInvoiceMutation.isPending}
-                      >
-                        {payUnifiedInvoiceMutation.isPending ? "Recording…" : `Collect $${issuedInvoice.total} (${paymentMethod})`}
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          id="btn-collect-payment"
+                          size="sm"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                          onClick={() => payUnifiedInvoiceMutation.mutate()}
+                          disabled={payUnifiedInvoiceMutation.isPending}
+                        >
+                          {payUnifiedInvoiceMutation.isPending ? "Recording…" : `Collect ₹${issuedInvoice.total} (${paymentMethod})`}
+                        </Button>
+                        <Button
+                          id="btn-print-pos-invoice"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setPosPrintOpen(true)}
+                          className="flex items-center gap-1.5 border-slate-300 text-slate-700 bg-white hover:bg-slate-50"
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                          Print Receipt
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1406,11 +2865,118 @@ export default function ClinicOperationsStation() {
           <div>
             <h2 className="text-xl font-bold text-slate-900">Quick Walk-In Registration</h2>
             <p className="text-sm text-slate-500">
-              Register new client and pet in seconds and instantly assign a queue token.
+              Lookup existing registered clients or enter a new walk-in patient directly to issue an immediate queue token.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* SMART LOOKUP / FETCH BAR */}
+          <div className="rounded-xl bg-teal-50/70 border border-teal-200 p-4 relative">
+            <div className="flex items-center justify-between gap-2">
+              <label htmlFor="quick-client-search" className="text-xs font-bold text-teal-950 flex items-center gap-1.5">
+                <span className="text-base">🔍</span>
+                <span>Lookup Existing Registered Client / Pet (Optional)</span>
+              </label>
+              {selectedExistingClientId && (
+                <span className="text-xs font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
+                  <span>✓ Existing Client Linked</span>
+                  <button
+                    type="button"
+                    onClick={clearExistingClient}
+                    className="text-emerald-700 hover:text-emerald-950 font-extrabold ml-1"
+                    title="Clear and register new"
+                  >
+                    ✕
+                  </button>
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-teal-700 mt-1">
+              Start typing a client name, phone number, or pet name to fetch their record. If they are new to the clinic, simply enter details in the fields below!
+            </p>
+            <div className="relative mt-2.5">
+              <input
+                id="quick-client-search"
+                type="text"
+                placeholder="Type to search (e.g. Nagesh, 7093365892, chitti)…"
+                className="w-full rounded-lg border border-teal-300 bg-white p-2.5 text-sm shadow-xs focus:border-teal-600 focus:ring-1 focus:ring-teal-600 focus:outline-none"
+                value={clientSearchQuery}
+                onChange={(e) => {
+                  setClientSearchQuery(e.target.value);
+                  setShowClientSuggestions(true);
+                }}
+                onFocus={() => setShowClientSuggestions(true)}
+              />
+
+              {showClientSuggestions && clientSearchQuery.trim().length > 0 && (
+                <div className="absolute left-0 right-0 top-full mt-1.5 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-2xl z-30 divide-y divide-slate-100">
+                  {matchingClients.length === 0 ? (
+                    <div className="p-4 text-xs text-slate-500 text-center">
+                      <p className="font-semibold text-slate-700">No registered client found for "{clientSearchQuery}"</p>
+                      <p className="text-teal-700 font-medium mt-1">
+                        You can fill out the form below directly to register them as a new client!
+                      </p>
+                    </div>
+                  ) : (
+                    matchingClients.map((c) => {
+                      const clientPets = (patients.data ?? []).filter((p) => p.clientId === c.id);
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => selectExistingClient(c)}
+                          className="w-full text-left p-3 hover:bg-teal-50 transition flex items-center justify-between gap-3 text-xs"
+                        >
+                          <div>
+                            <p className="font-bold text-slate-900 text-sm">{c.displayName}</p>
+                            <p className="text-slate-500 text-xs mt-0.5">Phone: {c.phone || "N/A"}</p>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-xs font-semibold text-teal-800 bg-teal-100 px-2 py-0.5 rounded-full">
+                              {clientPets.length > 0 ? `Pets: ${clientPets.map((p) => p.name).join(", ")}` : "No pets linked"}
+                            </span>
+                            <p className="text-[11px] text-teal-700 font-bold mt-1">Select & Load →</p>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {selectedExistingClientId && existingClientPets.length > 0 && (
+            <div className="rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <label className="text-xs font-bold text-slate-800">Select Pet for this Consultation *</label>
+              <select
+                className="mt-1 w-full rounded-md border border-slate-300 p-2.5 text-sm font-semibold bg-white text-slate-900"
+                value={selectedExistingPatientId || "__NEW__"}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "__NEW__") {
+                    setSelectedExistingPatientId(null);
+                    setRegPetName("");
+                  } else {
+                    setSelectedExistingPatientId(val);
+                    const pet = existingClientPets.find((p) => p.id === val);
+                    if (pet) {
+                      setRegPetName(pet.name);
+                      setRegSpecies(pet.speciesCode);
+                    }
+                  }
+                }}
+              >
+                {existingClientPets.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    🐾 {p.name} ({p.speciesCode})
+                  </option>
+                ))}
+                <option value="__NEW__">+ Add a New Pet for {regClientName}</option>
+              </select>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="text-xs font-semibold text-slate-600">Client / Owner Name *</label>
               <input
@@ -1419,7 +2985,10 @@ export default function ClinicOperationsStation() {
                 placeholder="e.g. John Doe"
                 className="mt-1 w-full rounded-md border border-slate-300 p-2.5 text-sm"
                 value={regClientName}
-                onChange={(e) => setRegClientName(e.target.value)}
+                onChange={(e) => {
+                  setRegClientName(e.target.value);
+                  if (selectedExistingClientId) setSelectedExistingClientId(null);
+                }}
               />
             </div>
             <div>
@@ -1433,6 +3002,22 @@ export default function ClinicOperationsStation() {
                 onChange={(e) => setRegClientPhone(e.target.value)}
               />
             </div>
+            <div>
+              <label htmlFor="reg-client-category" className="text-xs font-semibold text-slate-600 flex items-center justify-between">
+                <span>Customer Category</span>
+                <span className="text-[10px] text-teal-700 font-bold">Pricing Tier</span>
+              </label>
+              <select
+                id="reg-client-category"
+                className="mt-1 w-full rounded-md border border-slate-300 p-2.5 text-sm font-medium bg-white"
+                value={regCategory}
+                onChange={(e) => setRegCategory(e.target.value as ClientCategory)}
+              >
+                <option value="STANDARD">Standard Client (Regular)</option>
+                <option value="LOYAL">⭐ Loyal Customer (Up to {loyalDiscountCap}% cap)</option>
+                <option value="NGO">🐾 NGO / Stray Rescue ({ngoConsultationDiscountPercent}% Consultation)</option>
+              </select>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1442,7 +3027,7 @@ export default function ClinicOperationsStation() {
                 id="reg-pet-name"
                 type="text"
                 placeholder="e.g. Bruno"
-                className="mt-1 w-full rounded-md border border-slate-300 p-2.5 text-sm"
+                className="mt-1 w-full rounded-md border border-slate-300 p-2.5 text-sm font-semibold"
                 value={regPetName}
                 onChange={(e) => setRegPetName(e.target.value)}
               />
@@ -1474,20 +3059,88 @@ export default function ClinicOperationsStation() {
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-600">Assign Doctor *</label>
+            <label className="text-xs font-semibold text-slate-600 flex items-center justify-between">
+              <span>Assign Doctor *</span>
+              <span className="text-[11px] text-teal-700 font-semibold">Real-Time Doctor Availability</span>
+            </label>
+
+            {/* Quick Doctor Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-2">
+              {doctorStats.map((d) => {
+                const isSelected = regDoctorId === d.id;
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => setRegDoctorId(d.id)}
+                    className={`rounded-lg border p-2.5 text-left transition-all ${
+                      isSelected
+                        ? "border-teal-600 bg-teal-50 ring-1 ring-teal-600 shadow-2xs"
+                        : d.isConsulting
+                        ? "border-slate-200 bg-slate-50/70 hover:bg-slate-100"
+                        : "border-emerald-200 bg-emerald-50/40 hover:bg-emerald-50 shadow-2xs"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-slate-900 truncate">{d.displayName}</p>
+                      {d.isConsulting ? (
+                        <span className="text-[9px] font-bold text-rose-700 bg-rose-100 border border-rose-200 px-1.5 py-0.2 rounded-full">
+                          Busy
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-1.5 py-0.2 rounded-full">
+                          🟢 Free
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      {d.isConsulting
+                        ? `With ${d.consultingPatient?.name || "Patient"}`
+                        : `${d.waitingCount} waiting in queue`}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+
             <select
               id="reg-doctor-select"
-              className="mt-1 w-full rounded-md border border-slate-300 p-2.5 text-sm"
+              className="mt-2.5 w-full rounded-md border border-slate-300 p-2.5 text-sm"
               value={regDoctorId}
               onChange={(e) => setRegDoctorId(e.target.value)}
             >
               <option value="">Select attending doctor…</option>
-              {doctors.map((d) => (
+              {doctorStats.map((d) => (
                 <option key={d.id} value={d.id}>
-                  {d.displayName} ({d.roles.join(", ")})
+                  {d.displayName} — {d.isConsulting ? `🔴 BUSY (In Consult with ${d.consultingPatient?.name || "Patient"})` : `🟢 FREE NOW (${d.waitingCount} waiting)`}
                 </option>
               ))}
             </select>
+
+            {/* Hint if selected doctor is busy */}
+            {(() => {
+              const selectedDocStat = doctorStats.find((d) => d.id === regDoctorId);
+              const freeDoc = doctorStats.find((d) => d.isFree && d.waitingCount === 0);
+              if (selectedDocStat?.isConsulting) {
+                return (
+                  <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-2 mt-2 flex flex-wrap items-center justify-between gap-1">
+                    <span>
+                      ⚠️ <strong>{selectedDocStat.displayName}</strong> is currently with <strong>{selectedDocStat.consultingPatient?.name || "Patient"}</strong>.
+                    </span>
+                    {freeDoc && (
+                      <button
+                        type="button"
+                        onClick={() => setRegDoctorId(freeDoc.id)}
+                        className="font-bold underline text-teal-800"
+                      >
+                        Switch to {freeDoc.displayName} (Free Now) →
+                      </button>
+                    )}
+                  </div>
+                );
+              }
+              return null;
+            })()}
           </div>
 
           <div className="pt-2 flex justify-end gap-3">
@@ -1499,14 +3152,61 @@ export default function ClinicOperationsStation() {
             </Button>
             <Button
               id="btn-register-walkin"
-              className="bg-teal-700 hover:bg-teal-800 text-white"
+              className="bg-teal-700 hover:bg-teal-800 text-white font-bold"
               onClick={() => executeWalkInRegistration.mutate()}
               disabled={executeWalkInRegistration.isPending || !regClientName || !regPetName || !regDoctorId}
             >
-              {executeWalkInRegistration.isPending ? "Registering…" : "Register & Issue Queue Token ✓"}
+              {executeWalkInRegistration.isPending
+                ? "Processing…"
+                : selectedExistingPatientId
+                ? "Check In & Issue Queue Token ✓"
+                : "Register & Issue Queue Token ✓"}
             </Button>
           </div>
         </div>
+      )}
+
+      {/* RECORD SOAP CONSULTATION MODAL */}
+      <RecordSoapModal
+        isOpen={soapModalOpen}
+        onClose={() => setSoapModalOpen(false)}
+        initialPatientId={soapModalPatientId}
+        initialAppointmentId={soapModalApptId}
+      />
+
+      {(issuedInvoice || completedReceipt) && (
+        <PrintableDocumentModal
+          isOpen={posPrintOpen}
+          onClose={() => setPosPrintOpen(false)}
+          documentType="INVOICE"
+          invoiceData={{
+            invoiceNumber: issuedInvoice?.invoiceNumber || completedReceipt?.invoiceNumber || "",
+            invoiceDate: completedReceipt?.dateStr || new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }),
+            clientName: completedReceipt?.clientName || clients.data?.find((c) => c.id === basketClientId || (activePatientId && c.id === patients.data?.find((p) => p.id === activePatientId)?.clientId))?.displayName || "Clinic Walk-In Client",
+            clientPhone: completedReceipt?.clientPhone || clients.data?.find((c) => c.id === basketClientId || (activePatientId && c.id === patients.data?.find((p) => p.id === activePatientId)?.clientId))?.phone || "",
+            petName: completedReceipt?.petName || patients.data?.find((p) => p.id === activePatientId)?.name,
+            lines: completedReceipt?.lines && completedReceipt.lines.length > 0
+              ? completedReceipt.lines
+              : (issuedInvoice?.lines && issuedInvoice.lines.length > 0)
+              ? issuedInvoice.lines.map((l) => ({
+                  description: l.description,
+                  quantity: 1,
+                  unitPrice: Number(l.lineTotal) || 0,
+                  total: Number(l.lineTotal) || 0,
+                }))
+              : basketLines.map((b) => ({
+                  description: b.description,
+                  quantity: b.quantity,
+                  unitPrice: b.unitPrice,
+                  total: b.quantity * b.unitPrice,
+                })),
+            subtotal: completedReceipt?.total || Number(issuedInvoice?.total) || basketLines.reduce((acc, b) => acc + b.quantity * b.unitPrice, 0),
+            taxAmount: 0,
+            grandTotal: completedReceipt?.total || Number(issuedInvoice?.total) || basketLines.reduce((acc, b) => acc + b.quantity * b.unitPrice, 0),
+            paymentStatus: completedReceipt ? "PAID" : (issuedInvoice?.status === "PAID" ? "PAID" : "PENDING"),
+            paymentMethod: completedReceipt?.paymentMethod || paymentMethod,
+          }}
+        />
       )}
     </div>
   );

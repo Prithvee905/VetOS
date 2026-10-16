@@ -11,10 +11,12 @@ import {
   receiveGoods,
   listProducts,
   listBranches,
+  currentUser,
   type Vendor,
   type PurchaseOrder,
   type PurchaseOrderDetail,
   type Product,
+  type SessionUser,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
@@ -27,10 +29,16 @@ export default function ProcurementPage() {
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
   const [showReceiveModal, setShowReceiveModal] = useState<string | null>(null);
 
-  // New Vendor Form
-  const [vendorName, setVendorName] = useState("");
+  // New Vendor / Distributor Form
+  const [distributorName, setDistributorName] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [contactPerson, setContactPerson] = useState("");
   const [vendorPhone, setVendorPhone] = useState("");
   const [vendorEmail, setVendorEmail] = useState("");
+  const [vendorAddress, setVendorAddress] = useState("");
+  const [vendorGstin, setVendorGstin] = useState("");
+  const [vendorDlNumber, setVendorDlNumber] = useState("");
+  const [vendorNotes, setVendorNotes] = useState("");
 
   // New PO Form
   const [poVendorId, setPoVendorId] = useState("");
@@ -42,20 +50,30 @@ export default function ProcurementPage() {
   const [receiveBranchId, setReceiveBranchId] = useState("");
   const [receiveExpiry, setReceiveExpiry] = useState("");
 
+  // Session & Roles
+  const session = useQuery<SessionUser>({
+    queryKey: ["session"],
+    queryFn: currentUser,
+  });
+  const isOwner = session.data?.roles.includes("OWNER") ?? false;
+
   // Queries
   const vendorsQuery = useQuery<Vendor[]>({
     queryKey: ["vendors"],
     queryFn: listVendors,
+    enabled: isOwner,
   });
 
   const ordersQuery = useQuery<PurchaseOrder[]>({
     queryKey: ["purchase-orders"],
     queryFn: listPurchaseOrders,
+    enabled: isOwner,
   });
 
   const productsQuery = useQuery<Product[]>({
     queryKey: ["procurement-products"],
     queryFn: () => listProducts(),
+    enabled: isOwner,
   });
 
   const branchesQuery = useQuery({
@@ -73,16 +91,28 @@ export default function ProcurementPage() {
   const createVendorMutation = useMutation({
     mutationFn: () =>
       createVendor({
-        name: vendorName,
-        phone: vendorPhone || undefined,
-        email: vendorEmail || undefined,
+        distributorName: distributorName.trim(),
+        companyName: companyName.trim() || undefined,
+        contactPerson: contactPerson.trim() || undefined,
+        phone: vendorPhone.trim() || undefined,
+        email: vendorEmail.trim() || undefined,
+        address: vendorAddress.trim() || undefined,
+        gstin: vendorGstin.trim() || undefined,
+        dlNumber: vendorDlNumber.trim() || undefined,
+        notes: vendorNotes.trim() || undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vendors"] });
       setShowVendorModal(false);
-      setVendorName("");
+      setDistributorName("");
+      setCompanyName("");
+      setContactPerson("");
       setVendorPhone("");
       setVendorEmail("");
+      setVendorAddress("");
+      setVendorGstin("");
+      setVendorDlNumber("");
+      setVendorNotes("");
     },
   });
 
@@ -313,33 +343,101 @@ export default function ProcurementPage() {
             <table className="w-full text-left text-xs">
               <thead className="border-b border-slate-200 bg-slate-50 font-semibold uppercase text-slate-600">
                 <tr>
-                  <th className="p-3">Vendor / Company</th>
-                  <th className="p-3">Phone</th>
-                  <th className="p-3">Email</th>
+                  <th className="p-3">Distributor / Supplier</th>
+                  <th className="p-3">Company / Brand</th>
+                  <th className="p-3">Person Who Sold (Rep)</th>
+                  <th className="p-3">Phone & Mails</th>
+                  <th className="p-3">Location & Credentials</th>
                   <th className="p-3">Status</th>
+                  <th className="p-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {vendorsQuery.isLoading ? (
                   <tr>
-                    <td colSpan={4} className="p-4 text-center text-slate-400">Loading vendors…</td>
+                    <td colSpan={7} className="p-4 text-center text-slate-400">Loading distributors…</td>
                   </tr>
                 ) : (vendorsQuery.data || []).length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="p-6 text-center text-slate-400">
-                      No vendors listed. Click "+ Add Vendor" to create one.
+                    <td colSpan={7} className="p-6 text-center text-slate-400">
+                      No distributors / vendors listed. Click "+ Add Vendor" to register one.
                     </td>
                   </tr>
                 ) : (
                   (vendorsQuery.data || []).map((v) => (
                     <tr key={v.id} className="hover:bg-slate-50">
-                      <td className="p-3 font-bold text-slate-900">{v.name}</td>
-                      <td className="p-3 text-slate-600">{v.phone || "N/A"}</td>
-                      <td className="p-3 text-slate-600">{v.email || "N/A"}</td>
+                      <td className="p-3 font-bold text-slate-900">
+                        <div>{v.distributorName || v.name}</div>
+                        {v.notes && <p className="text-[10px] text-slate-400 font-normal italic mt-0.5 line-clamp-1">{v.notes}</p>}
+                      </td>
+                      <td className="p-3">
+                        {v.companyName ? (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[11px] font-semibold text-indigo-800">
+                            <span>🏭</span>
+                            <span>{v.companyName}</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic">General / Multiple Brands</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-slate-700">
+                        {v.contactPerson ? (
+                          <div className="flex items-center gap-1 font-semibold text-teal-950">
+                            <span>👤</span>
+                            <span>{v.contactPerson}</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic">—</span>
+                        )}
+                      </td>
+                      <td className="p-3 space-y-0.5">
+                        {v.phone && (
+                          <div className="text-slate-700 font-medium flex items-center gap-1">
+                            <span>📞</span>
+                            <span>{v.phone}</span>
+                          </div>
+                        )}
+                        {v.email && (
+                          <div className="text-teal-700 text-[11px] flex items-center gap-1">
+                            <span>✉️</span>
+                            <a href={`mailto:${v.email}`} className="hover:underline">{v.email}</a>
+                          </div>
+                        )}
+                        {!v.phone && !v.email && <span className="text-slate-400 italic">—</span>}
+                      </td>
+                      <td className="p-3 space-y-1">
+                        {v.address && <p className="text-slate-600 text-[11px] line-clamp-1">📍 {v.address}</p>}
+                        <div className="flex flex-wrap gap-1">
+                          {v.gstin && (
+                            <span className="rounded bg-slate-100 border border-slate-200 px-1.5 py-0.2 text-[10px] font-mono text-slate-600">
+                              GST: {v.gstin}
+                            </span>
+                          )}
+                          {v.dlNumber && (
+                            <span className="rounded bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 text-[10px] font-mono text-emerald-800">
+                              DL: {v.dlNumber}
+                            </span>
+                          )}
+                        </div>
+                        {!v.address && !v.gstin && !v.dlNumber && <span className="text-slate-400 italic">—</span>}
+                      </td>
                       <td className="p-3">
                         <span className="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
                           {v.status}
                         </span>
+                      </td>
+                      <td className="p-3 text-right">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-xs h-7 border-teal-600 text-teal-700 hover:bg-teal-50"
+                          onClick={() => {
+                            setPoVendorId(v.id);
+                            setShowPoModal(true);
+                          }}
+                        >
+                          + Create PO
+                        </Button>
                       </td>
                     </tr>
                   ))
@@ -350,54 +448,149 @@ export default function ProcurementPage() {
         </div>
       )}
 
-      {/* Modal: New Vendor */}
+      {/* Modal: New Vendor / Distributor */}
       {showVendorModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl space-y-4">
-            <h3 className="text-lg font-bold text-slate-900">Add Pharmaceutical Vendor</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-700">Company / Vendor Name *</label>
-                <input
-                  type="text"
-                  value={vendorName}
-                  onChange={(e) => setVendorName(e.target.value)}
-                  className="mt-1 w-full rounded border border-slate-300 p-2 text-sm"
-                  placeholder="e.g. Zoetis Animal Health"
-                />
+          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="border-b border-slate-100 pb-3">
+              <h3 className="text-lg font-bold text-slate-900">Add Pharmaceutical Distributor & Supplier</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Record complete distributor details including the sales representative who sold to us, ordering emails, address, and license information.
+              </p>
+            </div>
+            <div className="space-y-4">
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
+                    <span>Distributor / Supplier Name *</span>
+                    <span className="text-[11px] text-teal-700 font-normal">Who invoices & delivers</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={distributorName}
+                    onChange={(e) => setDistributorName(e.target.value)}
+                    className="mt-1 w-full rounded border border-slate-300 p-2 text-sm focus:border-teal-600 focus:outline-none"
+                    placeholder="e.g. Sri Sai Veterinary Distributors, Medivet, Henry Schein"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
+                    <span>Pharmaceutical Company / Manufacturer</span>
+                    <span className="text-[11px] text-indigo-700 font-normal">Brand or maker</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    className="mt-1 w-full rounded border border-slate-300 p-2 text-sm focus:border-teal-600 focus:outline-none"
+                    placeholder="e.g. Zoetis Animal Health, Virbac, Intas, MSD Animal Health"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-700">Phone</label>
-                <input
-                  type="text"
-                  value={vendorPhone}
-                  onChange={(e) => setVendorPhone(e.target.value)}
-                  className="mt-1 w-full rounded border border-slate-300 p-2 text-sm"
-                  placeholder="+1 800-555-0199"
-                />
+
+              {/* The Person Who Sold to Us & Contact Details */}
+              <div className="rounded-lg bg-teal-50/50 border border-teal-100 p-3.5 space-y-3">
+                <p className="text-xs font-bold text-teal-900 flex items-center gap-1.5">
+                  <span>👤</span>
+                  <span>Sales Representative & Communication Channels</span>
+                </p>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700">Person Who Sold To Us / Representative Name</label>
+                  <input
+                    type="text"
+                    value={contactPerson}
+                    onChange={(e) => setContactPerson(e.target.value)}
+                    className="mt-1 w-full rounded border border-slate-300 p-2 text-sm bg-white focus:border-teal-600 focus:outline-none"
+                    placeholder="e.g. Ramesh Kumar (Sales Rep / Area Manager)"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700">Phone / Mobile</label>
+                    <input
+                      type="text"
+                      value={vendorPhone}
+                      onChange={(e) => setVendorPhone(e.target.value)}
+                      className="mt-1 w-full rounded border border-slate-300 p-2 text-sm bg-white focus:border-teal-600 focus:outline-none"
+                      placeholder="+91 98765 43210"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700">Email Address (Mails)</label>
+                    <input
+                      type="email"
+                      value={vendorEmail}
+                      onChange={(e) => setVendorEmail(e.target.value)}
+                      className="mt-1 w-full rounded border border-slate-300 p-2 text-sm bg-white focus:border-teal-600 focus:outline-none"
+                      placeholder="orders@distributor.com"
+                    />
+                  </div>
+                </div>
               </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-700">Email</label>
-                <input
-                  type="email"
-                  value={vendorEmail}
-                  onChange={(e) => setVendorEmail(e.target.value)}
-                  className="mt-1 w-full rounded border border-slate-300 p-2 text-sm"
-                  placeholder="orders@vendor.com"
-                />
+
+              {/* Address & Legal / Tax Information */}
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700">Physical Address / City / Depot</label>
+                  <input
+                    type="text"
+                    value={vendorAddress}
+                    onChange={(e) => setVendorAddress(e.target.value)}
+                    className="mt-1 w-full rounded border border-slate-300 p-2 text-sm focus:border-teal-600 focus:outline-none"
+                    placeholder="e.g. Shop 14, Wholesale Medical Complex, Banjara Hills, Hyderabad"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700">GSTIN (Tax ID)</label>
+                    <input
+                      type="text"
+                      value={vendorGstin}
+                      onChange={(e) => setVendorGstin(e.target.value)}
+                      className="mt-1 w-full rounded border border-slate-300 p-2 text-sm uppercase focus:border-teal-600 focus:outline-none"
+                      placeholder="e.g. 36AABCP1234F1Z5"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700">Drug License No. (DL)</label>
+                    <input
+                      type="text"
+                      value={vendorDlNumber}
+                      onChange={(e) => setVendorDlNumber(e.target.value)}
+                      className="mt-1 w-full rounded border border-slate-300 p-2 text-sm focus:border-teal-600 focus:outline-none"
+                      placeholder="e.g. 20B/21B-TS/HYD/12345"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700">Payment Terms & Notes</label>
+                  <textarea
+                    rows={2}
+                    value={vendorNotes}
+                    onChange={(e) => setVendorNotes(e.target.value)}
+                    className="mt-1 w-full rounded border border-slate-300 p-2 text-sm focus:border-teal-600 focus:outline-none"
+                    placeholder="e.g. Net 30 days credit, orders on Mondays, bank transfer details"
+                  />
+                </div>
               </div>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
               <Button type="button" variant="outline" onClick={() => setShowVendorModal(false)}>
                 Cancel
               </Button>
               <Button
                 type="button"
-                className="bg-teal-800 text-white"
-                disabled={!vendorName || createVendorMutation.isPending}
+                className="bg-teal-800 text-white hover:bg-teal-900"
+                disabled={!distributorName.trim() || createVendorMutation.isPending}
                 onClick={() => createVendorMutation.mutate()}
               >
-                {createVendorMutation.isPending ? "Saving…" : "Save Vendor"}
+                {createVendorMutation.isPending ? "Saving…" : "Save Distributor & Supplier"}
               </Button>
             </div>
           </div>
@@ -411,16 +604,16 @@ export default function ProcurementPage() {
             <h3 className="text-lg font-bold text-slate-900">Create Purchase Order</h3>
             <div className="space-y-4">
               <div>
-                <label className="text-xs font-semibold text-slate-700">Vendor *</label>
+                <label className="text-xs font-semibold text-slate-700">Distributor / Vendor *</label>
                 <select
                   value={poVendorId}
                   onChange={(e) => setPoVendorId(e.target.value)}
                   className="mt-1 w-full rounded border border-slate-300 p-2 text-sm"
                 >
-                  <option value="">Select vendor…</option>
+                  <option value="">Select distributor / vendor…</option>
                   {(vendorsQuery.data || []).map((v) => (
                     <option key={v.id} value={v.id}>
-                      {v.name}
+                      {v.distributorName || v.name} {v.companyName ? `— [${v.companyName}]` : ""}
                     </option>
                   ))}
                 </select>

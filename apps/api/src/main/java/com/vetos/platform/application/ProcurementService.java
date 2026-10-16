@@ -28,29 +28,60 @@ public class ProcurementService {
 
 	public List<VendorDto> listVendors(UUID clinicId) {
 		return jdbcTemplate.query("""
-				select id, name, phone, email, status
+				select id, name, distributor_name, company_name, contact_person, phone, email, address, gstin, dl_number, notes, status
 				from vendors
 				where clinic_id = ?
-				order by name
+				order by coalesce(distributor_name, name)
 				""",
 				(rs, rowNum) -> new VendorDto(
 						rs.getObject("id", UUID.class),
 						rs.getString("name"),
+						rs.getString("distributor_name"),
+						rs.getString("company_name"),
+						rs.getString("contact_person"),
 						rs.getString("phone"),
 						rs.getString("email"),
+						rs.getString("address"),
+						rs.getString("gstin"),
+						rs.getString("dl_number"),
+						rs.getString("notes"),
 						rs.getString("status")),
 				clinicId);
 	}
 
 	public VendorDto createVendor(UUID clinicId, UUID actorId, VendorCreateRequest req, String requestId) {
 		UUID id = UuidV7.generate();
+		String distName = req.distributorName() != null && !req.distributorName().isBlank() ? req.distributorName().trim() : null;
+		String compName = req.companyName() != null && !req.companyName().isBlank() ? req.companyName().trim() : null;
+		String contact = req.contactPerson() != null && !req.contactPerson().isBlank() ? req.contactPerson().trim() : null;
+		String addr = req.address() != null && !req.address().isBlank() ? req.address().trim() : null;
+		String gst = req.gstin() != null && !req.gstin().isBlank() ? req.gstin().trim() : null;
+		String dl = req.dlNumber() != null && !req.dlNumber().isBlank() ? req.dlNumber().trim() : null;
+		String nts = req.notes() != null && !req.notes().isBlank() ? req.notes().trim() : null;
+
+		String name = req.name() != null && !req.name().isBlank() ? req.name().trim() : null;
+		if (name == null) {
+			if (distName != null && compName != null) {
+				name = distName + " (" + compName + ")";
+			} else if (distName != null) {
+				name = distName;
+			} else if (compName != null) {
+				name = compName;
+			} else {
+				name = "Vendor";
+			}
+		}
+		if (distName == null) {
+			distName = name;
+		}
+
 		jdbcTemplate.update("""
-				insert into vendors (id, clinic_id, name, phone, email, status)
-				values (?, ?, ?, ?, ?, 'ACTIVE')
+				insert into vendors (id, clinic_id, name, distributor_name, company_name, contact_person, phone, email, address, gstin, dl_number, notes, status)
+				values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
 				""",
-				id, clinicId, req.name(), req.phone(), req.email());
+				id, clinicId, name, distName, compName, contact, req.phone(), req.email(), addr, gst, dl, nts);
 		auditRecorder.record(clinicId, actorId, "CREATE", "vendor", id, requestId);
-		return new VendorDto(id, req.name(), req.phone(), req.email(), "ACTIVE");
+		return new VendorDto(id, name, distName, compName, contact, req.phone(), req.email(), addr, gst, dl, nts, "ACTIVE");
 	}
 
 	public List<PurchaseOrderDto> listPurchaseOrders(UUID clinicId) {
@@ -181,8 +212,31 @@ public class ProcurementService {
 		return new GoodsReceiptResponse(receiptId, req.purchaseOrderId(), "RECEIVED", po.lines().size());
 	}
 
-	public record VendorDto(UUID id, String name, String phone, String email, String status) {}
-	public record VendorCreateRequest(String name, String phone, String email) {}
+	public record VendorDto(
+			UUID id,
+			String name,
+			String distributorName,
+			String companyName,
+			String contactPerson,
+			String phone,
+			String email,
+			String address,
+			String gstin,
+			String dlNumber,
+			String notes,
+			String status) {}
+
+	public record VendorCreateRequest(
+			String name,
+			String distributorName,
+			String companyName,
+			String contactPerson,
+			String phone,
+			String email,
+			String address,
+			String gstin,
+			String dlNumber,
+			String notes) {}
 
 	public record PurchaseOrderDto(UUID id, UUID vendorId, String vendorName, String status, Instant orderedAt, BigDecimal totalAmount) {}
 	public record PurchaseOrderLineDto(UUID id, UUID productId, String productName, String sku, BigDecimal quantity, BigDecimal unitCost, BigDecimal lineTotal) {}

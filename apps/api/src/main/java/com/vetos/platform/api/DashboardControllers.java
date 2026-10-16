@@ -18,7 +18,8 @@ public class DashboardControllers {
 
 	@GetMapping("/dashboard/overview")
 	public DashboardService.DashboardOverviewDto getOverview(@AuthenticationPrincipal VetosAuthentication auth) {
-		return dashboardService.getOverview(auth.clinicId());
+		boolean isOwner = auth != null && auth.roles().contains("OWNER");
+		return dashboardService.getOverview(auth.clinicId(), isOwner);
 	}
 
 	@GetMapping("/search")

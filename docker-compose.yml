@@ -32,6 +32,7 @@ services:
       SPRING_FLYWAY_PASSWORD: postgres
       VETOS_JWT_SECRET: dev-only-change-me-not-for-production-0001
       VETOS_PLATFORM_ADMIN_SECRET: dev-platform-admin-secret-0001
+      VETOS_JWT_ACCESS_TTL: PT24H
     ports:
       - "8080:8080"
     depends_on:

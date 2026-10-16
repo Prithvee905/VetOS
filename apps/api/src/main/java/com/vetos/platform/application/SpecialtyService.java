@@ -3,6 +3,7 @@ package com.vetos.platform.application;
 import com.vetos.audit.application.AuditRecorder;
 import com.vetos.platform.api.ApiException;
 import com.vetos.platform.ids.UuidV7;
+import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -70,7 +71,7 @@ public class SpecialtyService {
 	// Lab Orders
 	public List<LabOrderDto> listLabOrders(UUID clinicId, UUID patientId) {
 		StringBuilder sql = new StringBuilder("""
-				select lo.id, lo.patient_id, p.name as patient_name, lo.test_name, lo.status, lo.ordered_at
+				select lo.id, lo.patient_id, p.name as patient_name, lo.test_name, lo.status, lo.charge_amount, lo.ordered_at
 				from lab_orders lo
 				join patients p on p.id = lo.patient_id and p.clinic_id = lo.clinic_id
 				where lo.clinic_id = ?
@@ -90,19 +91,21 @@ public class SpecialtyService {
 						rs.getString("patient_name"),
 						rs.getString("test_name"),
 						rs.getString("status"),
+						rs.getBigDecimal("charge_amount"),
 						rs.getTimestamp("ordered_at").toInstant()),
 				params.toArray());
 	}
 
 	public LabOrderDto createLabOrder(UUID clinicId, UUID actorId, LabOrderCreateRequest req, String requestId) {
 		UUID id = UuidV7.generate();
+		BigDecimal charge = req.chargeAmount() != null ? req.chargeAmount() : BigDecimal.ZERO;
 		jdbcTemplate.update("""
-				insert into lab_orders (id, clinic_id, patient_id, test_name, status, ordered_at)
-				values (?, ?, ?, ?, 'ORDERED', now())
+				insert into lab_orders (id, clinic_id, patient_id, test_name, status, charge_amount, ordered_at)
+				values (?, ?, ?, ?, 'ORDERED', ?, now())
 				""",
-				id, clinicId, req.patientId(), req.testName());
+				id, clinicId, req.patientId(), req.testName(), charge);
 		auditRecorder.record(clinicId, actorId, "CREATE", "lab_order", id, requestId);
-		return new LabOrderDto(id, req.patientId(), "", req.testName(), "ORDERED", Instant.now());
+		return new LabOrderDto(id, req.patientId(), "", req.testName(), "ORDERED", charge, Instant.now());
 	}
 
 	public void updateLabOrderStatus(UUID clinicId, UUID actorId, UUID orderId, String status, String requestId) {
@@ -116,7 +119,7 @@ public class SpecialtyService {
 	// Surgeries
 	public List<SurgeryDto> listSurgeries(UUID clinicId, UUID patientId) {
 		StringBuilder sql = new StringBuilder("""
-				select s.id, s.patient_id, p.name as patient_name, s.procedure_name, s.scheduled_at, s.status
+				select s.id, s.patient_id, p.name as patient_name, s.procedure_name, s.scheduled_at, s.status, s.charge_amount
 				from surgeries s
 				join patients p on p.id = s.patient_id and p.clinic_id = s.clinic_id
 				where s.clinic_id = ?
@@ -136,19 +139,21 @@ public class SpecialtyService {
 						rs.getString("patient_name"),
 						rs.getString("procedure_name"),
 						rs.getTimestamp("scheduled_at").toInstant(),
-						rs.getString("status")),
+						rs.getString("status"),
+						rs.getBigDecimal("charge_amount")),
 				params.toArray());
 	}
 
 	public SurgeryDto scheduleSurgery(UUID clinicId, UUID actorId, SurgeryCreateRequest req, String requestId) {
 		UUID id = UuidV7.generate();
+		BigDecimal charge = req.chargeAmount() != null ? req.chargeAmount() : BigDecimal.ZERO;
 		jdbcTemplate.update("""
-				insert into surgeries (id, clinic_id, patient_id, procedure_name, scheduled_at, status)
-				values (?, ?, ?, ?, ?, 'SCHEDULED')
+				insert into surgeries (id, clinic_id, patient_id, procedure_name, scheduled_at, status, charge_amount)
+				values (?, ?, ?, ?, ?, 'SCHEDULED', ?)
 				""",
-				id, clinicId, req.patientId(), req.procedureName(), Timestamp.from(req.scheduledAt()));
+				id, clinicId, req.patientId(), req.procedureName(), Timestamp.from(req.scheduledAt()), charge);
 		auditRecorder.record(clinicId, actorId, "CREATE", "surgery", id, requestId);
-		return new SurgeryDto(id, req.patientId(), "", req.procedureName(), req.scheduledAt(), "SCHEDULED");
+		return new SurgeryDto(id, req.patientId(), "", req.procedureName(), req.scheduledAt(), "SCHEDULED", charge);
 	}
 
 	public void updateSurgeryStatus(UUID clinicId, UUID actorId, UUID surgeryId, String status, String requestId) {
@@ -162,7 +167,8 @@ public class SpecialtyService {
 	// Hospitalization / Admissions (IPD)
 	public List<AdmissionDto> listAdmissions(UUID clinicId, UUID patientId, boolean activeOnly) {
 		StringBuilder sql = new StringBuilder("""
-				select a.id, a.patient_id, p.name as patient_name, a.admitted_at, a.discharged_at, a.status
+				select a.id, a.patient_id, p.name as patient_name, a.admitted_at, a.discharged_at, a.status,
+				       a.daily_rate, a.total_charge
 				from admissions a
 				join patients p on p.id = a.patient_id and p.clinic_id = a.clinic_id
 				where a.clinic_id = ?
@@ -185,24 +191,31 @@ public class SpecialtyService {
 						rs.getString("patient_name"),
 						rs.getTimestamp("admitted_at").toInstant(),
 						rs.getTimestamp("discharged_at") == null ? null : rs.getTimestamp("discharged_at").toInstant(),
-						rs.getString("status")),
+						rs.getString("status"),
+						rs.getBigDecimal("daily_rate"),
+						rs.getBigDecimal("total_charge")),
 				params.toArray());
 	}
 
 	public AdmissionDto admitPatient(UUID clinicId, UUID actorId, AdmissionRequest req, String requestId) {
 		UUID id = UuidV7.generate();
+		BigDecimal rate = req.dailyRate() != null ? req.dailyRate() : BigDecimal.ZERO;
 		jdbcTemplate.update("""
-				insert into admissions (id, clinic_id, patient_id, admitted_at, status)
-				values (?, ?, ?, now(), 'ADMITTED')
+				insert into admissions (id, clinic_id, patient_id, admitted_at, status, daily_rate, total_charge)
+				values (?, ?, ?, now(), 'ADMITTED', ?, 0)
 				""",
-				id, clinicId, req.patientId());
+				id, clinicId, req.patientId(), rate);
 		auditRecorder.record(clinicId, actorId, "CREATE", "admission", id, requestId);
-		return new AdmissionDto(id, req.patientId(), "", Instant.now(), null, "ADMITTED");
+		return new AdmissionDto(id, req.patientId(), "", Instant.now(), null, "ADMITTED", rate, BigDecimal.ZERO);
 	}
 
 	public void dischargePatient(UUID clinicId, UUID actorId, UUID admissionId, String requestId) {
 		jdbcTemplate.update("""
-				update admissions set status = 'DISCHARGED', discharged_at = now() where id = ? and clinic_id = ?
+				update admissions
+				set status = 'DISCHARGED',
+				    discharged_at = now(),
+				    total_charge = greatest(1, ceil(extract(epoch from (now() - admitted_at)) / 86400.0)) * daily_rate
+				where id = ? and clinic_id = ?
 				""",
 				admissionId, clinicId);
 		auditRecorder.record(clinicId, actorId, "DISCHARGE", "admission", admissionId, requestId);
@@ -211,7 +224,8 @@ public class SpecialtyService {
 	// Grooming
 	public List<GroomingDto> listGroomingBookings(UUID clinicId, UUID patientId) {
 		StringBuilder sql = new StringBuilder("""
-				select g.id, g.patient_id, p.name as patient_name, g.scheduled_at, g.status, g.notes
+				select g.id, g.patient_id, p.name as patient_name, g.scheduled_at, g.status,
+				       coalesce(g.dog_size, 'MEDIUM') as dog_size, g.charge_amount, g.notes
 				from grooming_bookings g
 				join patients p on p.id = g.patient_id and p.clinic_id = g.clinic_id
 				where g.clinic_id = ?
@@ -231,19 +245,23 @@ public class SpecialtyService {
 						rs.getString("patient_name"),
 						rs.getTimestamp("scheduled_at").toInstant(),
 						rs.getString("status"),
+						rs.getString("dog_size"),
+						rs.getBigDecimal("charge_amount"),
 						rs.getString("notes")),
 				params.toArray());
 	}
 
 	public GroomingDto bookGrooming(UUID clinicId, UUID actorId, GroomingBookingRequest req, String requestId) {
 		UUID id = UuidV7.generate();
+		String size = req.dogSize() != null && !req.dogSize().isBlank() ? req.dogSize().toUpperCase() : "MEDIUM";
+		BigDecimal charge = req.chargeAmount() != null ? req.chargeAmount() : BigDecimal.ZERO;
 		jdbcTemplate.update("""
-				insert into grooming_bookings (id, clinic_id, patient_id, scheduled_at, status, notes)
-				values (?, ?, ?, ?, 'SCHEDULED', ?)
+				insert into grooming_bookings (id, clinic_id, patient_id, scheduled_at, status, dog_size, charge_amount, notes)
+				values (?, ?, ?, ?, 'SCHEDULED', ?, ?, ?)
 				""",
-				id, clinicId, req.patientId(), Timestamp.from(req.scheduledAt()), req.notes());
+				id, clinicId, req.patientId(), Timestamp.from(req.scheduledAt()), size, charge, req.notes());
 		auditRecorder.record(clinicId, actorId, "CREATE", "grooming_booking", id, requestId);
-		return new GroomingDto(id, req.patientId(), "", req.scheduledAt(), "SCHEDULED", req.notes());
+		return new GroomingDto(id, req.patientId(), "", req.scheduledAt(), "SCHEDULED", size, charge, req.notes());
 	}
 
 	public void updateGroomingStatus(UUID clinicId, UUID actorId, UUID bookingId, String status, String requestId) {
@@ -258,15 +276,15 @@ public class SpecialtyService {
 	public record DewormingDto(UUID id, UUID patientId, String patientName, String productName, LocalDate administeredOn, LocalDate nextDueOn, String notes, Instant createdAt) {}
 	public record DewormingRequest(UUID patientId, String productName, LocalDate administeredOn, LocalDate nextDueOn, String notes) {}
 
-	public record LabOrderDto(UUID id, UUID patientId, String patientName, String testName, String status, Instant orderedAt) {}
-	public record LabOrderCreateRequest(UUID patientId, String testName) {}
+	public record LabOrderDto(UUID id, UUID patientId, String patientName, String testName, String status, BigDecimal chargeAmount, Instant orderedAt) {}
+	public record LabOrderCreateRequest(UUID patientId, String testName, BigDecimal chargeAmount) {}
 
-	public record SurgeryDto(UUID id, UUID patientId, String patientName, String procedureName, Instant scheduledAt, String status) {}
-	public record SurgeryCreateRequest(UUID patientId, String procedureName, Instant scheduledAt) {}
+	public record SurgeryDto(UUID id, UUID patientId, String patientName, String procedureName, Instant scheduledAt, String status, BigDecimal chargeAmount) {}
+	public record SurgeryCreateRequest(UUID patientId, String procedureName, Instant scheduledAt, BigDecimal chargeAmount) {}
 
-	public record AdmissionDto(UUID id, UUID patientId, String patientName, Instant admittedAt, Instant dischargedAt, String status) {}
-	public record AdmissionRequest(UUID patientId) {}
+	public record AdmissionDto(UUID id, UUID patientId, String patientName, Instant admittedAt, Instant dischargedAt, String status, BigDecimal dailyRate, BigDecimal totalCharge) {}
+	public record AdmissionRequest(UUID patientId, BigDecimal dailyRate) {}
 
-	public record GroomingDto(UUID id, UUID patientId, String patientName, Instant scheduledAt, String status, String notes) {}
-	public record GroomingBookingRequest(UUID patientId, Instant scheduledAt, String notes) {}
+	public record GroomingDto(UUID id, UUID patientId, String patientName, Instant scheduledAt, String status, String dogSize, BigDecimal chargeAmount, String notes) {}
+	public record GroomingBookingRequest(UUID patientId, Instant scheduledAt, String dogSize, BigDecimal chargeAmount, String notes) {}
 }

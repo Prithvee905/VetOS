@@ -6,6 +6,7 @@ import com.vetos.clinic.api.ClinicController.ClinicUpdateRequest;
 import com.vetos.clinic.infrastructure.ClinicEntity;
 import com.vetos.clinic.infrastructure.ClinicRepository;
 import com.vetos.platform.api.ApiException;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -57,6 +58,18 @@ public class ClinicService {
 		if (request.status() != null) {
 			clinic.setStatus(request.status());
 		}
+		if (request.maxStaffDiscountPercent() != null) {
+			clinic.setMaxStaffDiscountPercent(request.maxStaffDiscountPercent());
+		}
+		if (request.loyalDiscountPercent() != null) {
+			clinic.setLoyalDiscountPercent(request.loyalDiscountPercent());
+		}
+		if (request.ngoConsultationDiscountPercent() != null) {
+			clinic.setNgoConsultationDiscountPercent(request.ngoConsultationDiscountPercent());
+		}
+		if (request.allowMedicineDiscount() != null) {
+			clinic.setAllowMedicineDiscount(request.allowMedicineDiscount());
+		}
 		clinic.setUpdatedAt(Instant.now());
 		ClinicEntity saved = clinicRepository.saveAndFlush(clinic);
 		auditRecorder.record(clinicId, actorUserId, "UPDATE", "clinic", clinicId, requestId);
@@ -78,6 +91,10 @@ public class ClinicService {
 				clinic.getPhone(),
 				clinic.getEmail(),
 				clinic.getStatus(),
+				clinic.getMaxStaffDiscountPercent() != null ? clinic.getMaxStaffDiscountPercent() : new BigDecimal("20.00"),
+				clinic.getLoyalDiscountPercent() != null ? clinic.getLoyalDiscountPercent() : new BigDecimal("30.00"),
+				clinic.getNgoConsultationDiscountPercent() != null ? clinic.getNgoConsultationDiscountPercent() : new BigDecimal("50.00"),
+				clinic.isAllowMedicineDiscount(),
 				clinic.getVersion());
 	}
 

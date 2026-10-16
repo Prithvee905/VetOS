@@ -6,8 +6,10 @@ import {
   getFinancialSummary,
   listExpenses,
   createExpense,
+  currentUser,
   type FinancialSummary,
   type Expense,
+  type SessionUser,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
@@ -20,14 +22,23 @@ export default function AnalyticsPage() {
   const [expenseDate, setExpenseDate] = useState(new Date().toISOString().slice(0, 10));
   const [expenseNotes, setExpenseNotes] = useState("");
 
+  const session = useQuery<SessionUser>({
+    queryKey: ["session"],
+    queryFn: currentUser,
+  });
+
+  const isOwner = session.data?.roles.includes("OWNER") ?? false;
+
   const summaryQuery = useQuery<FinancialSummary>({
     queryKey: ["financial-summary"],
     queryFn: getFinancialSummary,
+    enabled: isOwner,
   });
 
   const expensesQuery = useQuery<Expense[]>({
     queryKey: ["clinic-expenses"],
     queryFn: () => listExpenses(),
+    enabled: isOwner,
   });
 
   const createExpenseMutation = useMutation({
@@ -46,6 +57,15 @@ export default function AnalyticsPage() {
       setExpenseNotes("");
     },
   });
+
+  if (!session.isLoading && !isOwner) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-center text-sm text-amber-900">
+        <h3 className="font-bold text-base">Restricted Financial Module</h3>
+        <p className="mt-1 text-xs text-amber-700">Financial ledgers and revenue analytics are strictly restricted to Clinic Owners.</p>
+      </div>
+    );
+  }
 
   const summary = summaryQuery.data;
 

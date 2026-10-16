@@ -22,6 +22,10 @@ export type ClinicProfile = {
   phone: string | null;
   email: string | null;
   status: string;
+  maxStaffDiscountPercent?: number;
+  loyalDiscountPercent?: number;
+  ngoConsultationDiscountPercent?: number;
+  allowMedicineDiscount?: boolean;
   version: number;
 };
 
@@ -94,7 +98,31 @@ export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<
   if (csrf && method !== "GET" && method !== "HEAD") {
     headers.set("X-XSRF-TOKEN", csrf);
   }
-  const response = await fetchWithTimeout(`${apiUrl()}${path}`, { ...init, headers, credentials: "include" });
+  let response = await fetchWithTimeout(`${apiUrl()}${path}`, { ...init, headers, credentials: "include" });
+  if (response.status === 401 && path !== "/api/v1/auth/login" && path !== "/api/v1/auth/refresh") {
+    try {
+      await ensureCsrf();
+      const refreshHeaders = new Headers();
+      const freshCsrf = readCookie("XSRF-TOKEN");
+      if (freshCsrf) {
+        refreshHeaders.set("X-XSRF-TOKEN", freshCsrf);
+      }
+      const refreshRes = await fetchWithTimeout(`${apiUrl()}/api/v1/auth/refresh`, {
+        method: "POST",
+        headers: refreshHeaders,
+        credentials: "include",
+      });
+      if (refreshRes.ok) {
+        const retryCsrf = readCookie("XSRF-TOKEN");
+        if (retryCsrf && method !== "GET" && method !== "HEAD") {
+          headers.set("X-XSRF-TOKEN", retryCsrf);
+        }
+        response = await fetchWithTimeout(`${apiUrl()}${path}`, { ...init, headers, credentials: "include" });
+      }
+    } catch {
+      // Refresh failed, proceed to error handling
+    }
+  }
   if (!response.ok) {
     const error = (await response.json().catch(() => null)) as ApiError | null;
     throw new Error(error?.message ?? `Request failed (${response.status})`);
@@ -123,12 +151,15 @@ export async function logout(): Promise<void> {
 
 export type Branch = { id: string; name: string; status: string };
 
+export type ClientCategory = "STANDARD" | "LOYAL" | "NGO";
+
 export type ClientRow = {
   id: string;
   displayName: string;
   phone: string | null;
   email: string | null;
   status: string;
+  category?: ClientCategory;
 };
 
 export type PatientRow = {
@@ -137,6 +168,13 @@ export type PatientRow = {
   name: string;
   speciesCode: string;
   sizeCategory: string;
+  breed?: string | null;
+  dateOfBirth?: string | null;
+  sexCode?: string | null;
+  color?: string | null;
+  microchip?: string | null;
+  notes?: string | null;
+  version?: number;
 };
 
 export type UserRowBrief = UserRow;
@@ -196,13 +234,22 @@ export async function createClient(body: {
   email?: string;
   consentWhatsapp?: boolean;
   consentEmail?: boolean;
+  category?: ClientCategory;
 }): Promise<ClientRow> {
   const payload = {
     consentWhatsapp: body.consentWhatsapp ?? false,
     consentEmail: body.consentEmail ?? false,
+    category: body.category ?? "STANDARD",
     ...body,
   };
   return apiJson<ClientRow>("/api/v1/clients", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export async function updateClientCategory(clientId: string, category: ClientCategory): Promise<ClientRow> {
+  return apiJson<ClientRow>(`/api/v1/clients/${clientId}/category`, {
+    method: "PATCH",
+    body: JSON.stringify({ category }),
+  });
 }
 
 export async function listPatients(clientId?: string): Promise<PatientRow[]> {
@@ -258,6 +305,35 @@ export type DueAlert = {
   nextDueOn: string;
 };
 
+export type LiveQueueItem = {
+  id: string;
+  tokenNumber: number;
+  priority: "NORMAL" | "EMERGENCY" | string;
+  status: "WAITING" | "IN_CONSULTATION" | "COMPLETED" | "CANCELLED" | "NO_SHOW" | string;
+  checkInTime: string;
+  patientId: string;
+  patientName: string;
+  clientName: string;
+  doctorName: string;
+};
+
+export type TodayAppointmentItem = {
+  id: string;
+  patientName: string;
+  appointmentType: string;
+  doctorName: string;
+  time: string;
+  status: string;
+};
+
+export type InventoryBatchItem = {
+  productName: string;
+  batchCount: number;
+  expiryDate: string;
+  quantityOnHand: number;
+  isLow: boolean;
+};
+
 export type DashboardOverview = {
   todayAppointmentsCount: number;
   activeQueueCount: number;
@@ -267,7 +343,23 @@ export type DashboardOverview = {
   hospitalizedCount: number;
   vaccinationsDue: DueAlert[];
   dewormingsDue: DueAlert[];
+  petOwnersCount: number;
+  registeredPetsCount: number;
+  scheduledAppointmentsCount: number;
+  checkedInAppointmentsCount: number;
+  outstandingDues: number;
+  liveQueue: LiveQueueItem[];
+  todayAppointments: TodayAppointmentItem[];
+  inventoryBatches: InventoryBatchItem[];
+  messagesSentCount: number;
+  totalQueueToday: number;
+  emergencyQueueToday: number;
+  pendingInvoicesCount: number;
 };
+
+export async function getClinicProfile(): Promise<ClinicProfile> {
+  return apiJson<ClinicProfile>("/api/v1/clinic");
+}
 
 export type SearchPatient = {
   id: string;
@@ -344,6 +436,10 @@ export type Product = {
   unit: string;
   salePrice: number;
   status: string;
+  companyName?: string | null;
+  distributorId?: string | null;
+  distributorName?: string | null;
+  purchasePrice?: number;
 };
 
 export type InventoryBatch = {
@@ -354,23 +450,58 @@ export type InventoryBatch = {
   branchId: string;
   quantityOnHand: number;
   expiresOn: string | null;
+  costPrice?: number;
+  vendorId?: string | null;
+  vendorName?: string | null;
+  salePrice?: number;
+  companyName?: string | null;
 };
 
 export type StockMovement = {
   id: string;
   batchId: string;
+  productName?: string;
   movementType: string;
   quantity: number;
   reference: string;
   createdAt: string;
 };
 
+export type PrescriptionSummary = {
+  id: string;
+  consultationId: string;
+  patientId: string;
+  patientName: string;
+  speciesCode: string;
+  breed: string;
+  clientName: string;
+  clientPhone: string;
+  doctorName: string;
+  status: string;
+  notes: string;
+  medicines: string;
+  createdAt: string;
+};
+
+export async function listPrescriptions(status?: string): Promise<PrescriptionSummary[]> {
+  const q = status ? `?status=${encodeURIComponent(status)}` : "";
+  return apiJson<PrescriptionSummary[]>(`/api/v1/prescriptions${q}`);
+}
+
 export async function listProducts(query?: string): Promise<Product[]> {
   const q = query ? `?query=${encodeURIComponent(query)}` : "";
   return apiJson<Product[]>(`/api/v1/products${q}`);
 }
 
-export async function createProduct(body: { sku: string; name: string; unit?: string; salePrice: number }): Promise<Product> {
+export async function createProduct(body: {
+  sku: string;
+  name: string;
+  unit?: string;
+  salePrice: number;
+  companyName?: string;
+  distributorId?: string;
+  purchasePrice?: number;
+}): Promise<Product> {
   return apiJson<Product>("/api/v1/products/item", { method: "POST", body: JSON.stringify(body) });
 }
 
@@ -384,7 +515,14 @@ export async function listBatches(params?: { branchId?: string; productId?: stri
   return apiJson<InventoryBatch[]>(`/api/v1/inventory/batches${qs}`);
 }
 
-export async function createBatch(body: { productId: string; branchId: string; initialQuantity: number; expiresOn?: string }): Promise<InventoryBatch> {
+export async function createBatch(body: {
+  productId: string;
+  branchId: string;
+  initialQuantity: number;
+  expiresOn?: string;
+  costPrice?: number;
+  vendorId?: string;
+}): Promise<InventoryBatch> {
   return apiJson<InventoryBatch>("/api/v1/inventory/batches", { method: "POST", body: JSON.stringify(body) });
 }
 
@@ -396,8 +534,26 @@ export async function listBatchMovements(batchId: string): Promise<StockMovement
   return apiJson<StockMovement[]>(`/api/v1/inventory/batches/${batchId}/movements`);
 }
 
-export async function dispensePrescription(body: { prescriptionId: string; items: { batchId: string; quantity: number }[] }): Promise<{ prescriptionId: string; status: string }> {
+export async function listAllMovements(limit = 50, batchId?: string): Promise<StockMovement[]> {
+  const sp = new URLSearchParams();
+  if (limit) sp.set("limit", String(limit));
+  if (batchId) sp.set("batchId", batchId);
+  const qs = sp.toString() ? `?${sp.toString()}` : "";
+  return apiJson<StockMovement[]>(`/api/v1/inventory/movements${qs}`);
+}
+
+export async function dispensePrescription(body: {
+  prescriptionId: string;
+  items?: { batchId: string; quantity: number }[];
+}): Promise<{ prescriptionId: string; status: string }> {
   return apiJson("/api/v1/pharmacy/dispense", { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function dispenseOtc(body: {
+  items: { batchId: string; quantity: number }[];
+  notes?: string;
+}): Promise<void> {
+  await apiJson("/api/v1/pharmacy/dispense-otc", { method: "POST", body: JSON.stringify(body) });
 }
 
 // ----------------------------------------------------
@@ -406,8 +562,15 @@ export async function dispensePrescription(body: { prescriptionId: string; items
 export type Vendor = {
   id: string;
   name: string;
+  distributorName?: string | null;
+  companyName?: string | null;
+  contactPerson?: string | null;
   phone: string | null;
   email: string | null;
+  address?: string | null;
+  gstin?: string | null;
+  dlNumber?: string | null;
+  notes?: string | null;
   status: string;
 };
 
@@ -437,7 +600,18 @@ export async function listVendors(): Promise<Vendor[]> {
   return apiJson<Vendor[]>("/api/v1/vendors");
 }
 
-export async function createVendor(body: { name: string; phone?: string; email?: string }): Promise<Vendor> {
+export async function createVendor(body: {
+  name?: string;
+  distributorName: string;
+  companyName?: string;
+  contactPerson?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  gstin?: string;
+  dlNumber?: string;
+  notes?: string;
+}): Promise<Vendor> {
   return apiJson<Vendor>("/api/v1/vendors", { method: "POST", body: JSON.stringify(body) });
 }
 
@@ -477,6 +651,7 @@ export type LabOrder = {
   patientName: string;
   testName: string;
   status: string;
+  chargeAmount: number;
   orderedAt: string;
 };
 
@@ -487,6 +662,7 @@ export type SurgeryRecord = {
   procedureName: string;
   scheduledAt: string;
   status: string;
+  chargeAmount: number;
 };
 
 export type AdmissionRecord = {
@@ -496,6 +672,8 @@ export type AdmissionRecord = {
   admittedAt: string;
   dischargedAt: string | null;
   status: string;
+  dailyRate: number;
+  totalCharge: number;
 };
 
 export type GroomingRecord = {
@@ -504,6 +682,8 @@ export type GroomingRecord = {
   patientName: string;
   scheduledAt: string;
   status: string;
+  dogSize: string;
+  chargeAmount: number;
   notes: string | null;
 };
 
@@ -521,7 +701,7 @@ export async function listLabOrders(patientId?: string): Promise<LabOrder[]> {
   return apiJson<LabOrder[]>(`/api/v1/labs${q}`);
 }
 
-export async function createLabOrder(body: { patientId: string; testName: string }): Promise<LabOrder> {
+export async function createLabOrder(body: { patientId: string; testName: string; chargeAmount?: number }): Promise<LabOrder> {
   return apiJson<LabOrder>("/api/v1/labs", { method: "POST", body: JSON.stringify(body) });
 }
 
@@ -534,7 +714,7 @@ export async function listSurgeries(patientId?: string): Promise<SurgeryRecord[]
   return apiJson<SurgeryRecord[]>(`/api/v1/surgeries${q}`);
 }
 
-export async function scheduleSurgery(body: { patientId: string; procedureName: string; scheduledAt: string }): Promise<SurgeryRecord> {
+export async function scheduleSurgery(body: { patientId: string; procedureName: string; scheduledAt: string; chargeAmount?: number }): Promise<SurgeryRecord> {
   return apiJson<SurgeryRecord>("/api/v1/surgeries", { method: "POST", body: JSON.stringify(body) });
 }
 
@@ -550,7 +730,7 @@ export async function listAdmissions(params?: { patientId?: string; activeOnly?:
   return apiJson<AdmissionRecord[]>(`/api/v1/admissions${qs}`);
 }
 
-export async function admitPatient(body: { patientId: string }): Promise<AdmissionRecord> {
+export async function admitPatient(body: { patientId: string; dailyRate?: number }): Promise<AdmissionRecord> {
   return apiJson<AdmissionRecord>("/api/v1/admissions", { method: "POST", body: JSON.stringify(body) });
 }
 
@@ -563,7 +743,7 @@ export async function listGrooming(patientId?: string): Promise<GroomingRecord[]
   return apiJson<GroomingRecord[]>(`/api/v1/grooming${q}`);
 }
 
-export async function bookGrooming(body: { patientId: string; scheduledAt: string; notes?: string }): Promise<GroomingRecord> {
+export async function bookGrooming(body: { patientId: string; scheduledAt: string; dogSize?: string; chargeAmount?: number; notes?: string }): Promise<GroomingRecord> {
   return apiJson<GroomingRecord>("/api/v1/grooming", { method: "POST", body: JSON.stringify(body) });
 }
 
@@ -658,6 +838,13 @@ export async function updateQueueStatus(queueId: string, status: string): Promis
   return apiJson<QueueEntry>(`/api/v1/queue/${queueId}`, {
     method: "PATCH",
     body: JSON.stringify({ status }),
+  });
+}
+
+export async function reassignQueueDoctor(queueId: string, doctorUserId: string): Promise<QueueEntry> {
+  return apiJson<QueueEntry>(`/api/v1/queue/${queueId}/doctor`, {
+    method: "PATCH",
+    body: JSON.stringify({ doctorUserId }),
   });
 }
 
@@ -802,5 +989,51 @@ export async function recordVaccination(body: {
     body: JSON.stringify(body),
   });
 }
+
+// ----------------------------------------------------
+// File Storage & Diagnostic Attachments
+// ----------------------------------------------------
+export type FileResponse = {
+  id: string;
+  fileName: string;
+  byteSize: number;
+  storageKey: string;
+};
+
+export async function uploadFile(entityType: string, entityId: string, file: File): Promise<FileResponse> {
+  await ensureCsrf();
+  const form = new FormData();
+  form.append("entityType", entityType);
+  form.append("entityId", entityId);
+  form.append("file", file);
+
+  const headers = new Headers();
+  const csrf = readCookie("XSRF-TOKEN");
+  if (csrf) {
+    headers.set("X-XSRF-TOKEN", csrf);
+  }
+
+  const response = await fetchWithTimeout(`${apiUrl()}/api/v1/files`, {
+    method: "POST",
+    headers,
+    body: form,
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    const error = (await response.json().catch(() => null)) as ApiError | null;
+    throw new Error(error?.message ?? `Upload failed (${response.status})`);
+  }
+  return response.json() as Promise<FileResponse>;
+}
+
+export async function listFiles(entityType: string, entityId: string): Promise<FileResponse[]> {
+  return apiJson<FileResponse[]>(`/api/v1/files?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}`);
+}
+
+export function getFileDownloadUrl(fileId: string): string {
+  return `${apiUrl()}/api/v1/files/${fileId}/download`;
+}
+
 
 

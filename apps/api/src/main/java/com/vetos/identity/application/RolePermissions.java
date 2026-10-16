@@ -37,7 +37,11 @@ public final class RolePermissions {
 					"CONSULTATION_WRITE",
 					"VACCINATION_WRITE",
 					"CATALOG_WRITE",
-					"INVENTORY_WRITE"),
+					"INVENTORY_WRITE",
+					"INVOICE_WRITE",
+					"PAYMENT_WRITE",
+					"FILE_READ",
+					"FILE_WRITE"),
 			"RECEPTIONIST", Set.of(
 					"BRANCH_READ",
 					"LEAD_WRITE",
@@ -48,8 +52,10 @@ public final class RolePermissions {
 					"CATALOG_WRITE",
 					"INVENTORY_WRITE",
 					"INVOICE_WRITE",
-					"PAYMENT_WRITE"),
-			"STAFF", Set.of("BRANCH_READ", "QUEUE_WRITE", "INVENTORY_WRITE"));
+					"PAYMENT_WRITE",
+					"FILE_READ",
+					"FILE_WRITE"),
+			"STAFF", Set.of("BRANCH_READ", "QUEUE_WRITE", "INVENTORY_WRITE", "CATALOG_WRITE", "FILE_READ"));
 
 	private static final Set<String> ASSIGNABLE_ROLES = Set.of("OWNER", "DOCTOR", "RECEPTIONIST", "STAFF");
 

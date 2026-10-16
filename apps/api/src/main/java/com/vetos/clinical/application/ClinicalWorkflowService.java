@@ -34,9 +34,10 @@ public class ClinicalWorkflowService {
 	public ClientResponse createClient(UUID clinicId, UUID actorId, ClientCreateRequest request, String requestId) {
 		UUID id = UuidV7.generate();
 		Instant now = Instant.now();
+		String cat = request.category() != null && !request.category().isBlank() ? request.category().trim().toUpperCase() : "STANDARD";
 		jdbcTemplate.update("""
-				insert into clients (id, clinic_id, display_name, phone, email, notes, consent_whatsapp, consent_email, status, created_at, updated_at, created_by, updated_by)
-				values (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
+				insert into clients (id, clinic_id, display_name, phone, email, notes, consent_whatsapp, consent_email, status, category, created_at, updated_at, created_by, updated_by)
+				values (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
 				""",
 				id,
 				clinicId,
@@ -46,6 +47,7 @@ public class ClinicalWorkflowService {
 				request.notes(),
 				request.consentWhatsapp(),
 				request.consentEmail(),
+				cat,
 				Timestamp.from(now),
 				Timestamp.from(now),
 				actorId,
@@ -56,7 +58,7 @@ public class ClinicalWorkflowService {
 
 	public List<ClientResponse> listClients(UUID clinicId) {
 		return jdbcTemplate.query("""
-				select id, display_name, phone, email, notes, consent_whatsapp, consent_email, status, version
+				select id, display_name, phone, email, notes, consent_whatsapp, consent_email, status, coalesce(category, 'STANDARD') as category, version
 				from clients where clinic_id = ? and deleted_at is null order by display_name
 				""",
 				(rs, rowNum) -> new ClientResponse(
@@ -68,13 +70,14 @@ public class ClinicalWorkflowService {
 						rs.getBoolean("consent_whatsapp"),
 						rs.getBoolean("consent_email"),
 						rs.getString("status"),
+						rs.getString("category"),
 						rs.getLong("version")),
 				clinicId);
 	}
 
 	public ClientResponse getClient(UUID clinicId, UUID clientId) {
 		List<ClientResponse> rows = jdbcTemplate.query("""
-				select id, display_name, phone, email, notes, consent_whatsapp, consent_email, status, version
+				select id, display_name, phone, email, notes, consent_whatsapp, consent_email, status, coalesce(category, 'STANDARD') as category, version
 				from clients where clinic_id = ? and id = ? and deleted_at is null
 				""",
 				(rs, rowNum) -> new ClientResponse(
@@ -86,6 +89,7 @@ public class ClinicalWorkflowService {
 						rs.getBoolean("consent_whatsapp"),
 						rs.getBoolean("consent_email"),
 						rs.getString("status"),
+						rs.getString("category"),
 						rs.getLong("version")),
 				clinicId,
 				clientId);
@@ -93,6 +97,16 @@ public class ClinicalWorkflowService {
 			throw ApiException.notFound();
 		}
 		return rows.getFirst();
+	}
+
+	public ClientResponse updateClientCategory(UUID clinicId, UUID actorId, UUID clientId, String category, String requestId) {
+		getClient(clinicId, clientId);
+		String cat = category != null && !category.isBlank() ? category.trim().toUpperCase() : "STANDARD";
+		jdbcTemplate.update("""
+				update clients set category = ?, updated_at = now() where clinic_id = ? and id = ?
+				""", cat, clinicId, clientId);
+		auditRecorder.record(clinicId, actorId, "UPDATE_CATEGORY", "client", clientId, requestId);
+		return getClient(clinicId, clientId);
 	}
 
 	public PatientResponse createPatient(UUID clinicId, UUID actorId, PatientCreateRequest request, String requestId) {
@@ -253,30 +267,82 @@ public class ClinicalWorkflowService {
 		return getQueueEntry(clinicId, queueId);
 	}
 
+	public QueueEntryResponse updateQueueDoctor(UUID clinicId, UUID actorId, UUID queueId, UUID newDoctorId, String requestId) {
+		QueueEntryResponse entry = getQueueEntry(clinicId, queueId);
+		jdbcTemplate.update("update queue_entries set doctor_user_id = ?, version = version + 1 where clinic_id = ? and id = ?", newDoctorId, clinicId, queueId);
+		try {
+			jdbcTemplate.update("update appointments set doctor_user_id = ?, updated_at = now() where clinic_id = ? and id = ?", newDoctorId, clinicId, entry.appointmentId());
+		} catch (Exception ignored) {
+			// In case appointment exclusion rule restricts update, queue doctor is updated
+		}
+		auditRecorder.record(clinicId, actorId, "REASSIGN_DOCTOR", "queue_entry", queueId, requestId);
+		return getQueueEntry(clinicId, queueId);
+	}
+
 	public ConsultationResponse createConsultation(UUID clinicId, UUID actorId, ConsultationCreateRequest request, String requestId) {
 		AppointmentResponse appointment = getAppointment(clinicId, request.appointmentId());
-		UUID id = UuidV7.generate();
 		Instant now = Instant.now();
-		jdbcTemplate.update("""
-				insert into consultations (id, clinic_id, appointment_id, patient_id, doctor_user_id, subjective, history, examination, assessment, plan, diagnosis, doctor_remarks, doctor_notes, follow_up_on, status, created_at, updated_at)
-				values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'FINALIZED', ?, ?)
-				""",
-				id,
+
+		List<UUID> existingIds = jdbcTemplate.query(
+				"select id from consultations where clinic_id = ? and appointment_id = ?",
+				(rs, rowNum) -> (UUID) rs.getObject("id"),
 				clinicId,
-				appointment.id(),
-				appointment.patientId(),
-				appointment.doctorUserId(),
-				request.subjective(),
-				request.history(),
-				request.examination(),
-				request.assessment(),
-				request.plan(),
-				request.diagnosis(),
-				request.doctorRemarks(),
-				request.doctorNotes(),
-				request.followUpOn(),
-				Timestamp.from(now),
-				Timestamp.from(now));
+				appointment.id());
+
+		UUID id;
+		if (!existingIds.isEmpty()) {
+			id = existingIds.getFirst();
+			jdbcTemplate.update("""
+					update consultations set
+						subjective = ?,
+						history = ?,
+						examination = ?,
+						assessment = ?,
+						plan = ?,
+						diagnosis = ?,
+						doctor_remarks = ?,
+						doctor_notes = ?,
+						follow_up_on = ?,
+						status = 'FINALIZED',
+						updated_at = ?
+					where clinic_id = ? and id = ?
+					""",
+					request.subjective(),
+					request.history(),
+					request.examination(),
+					request.assessment(),
+					request.plan(),
+					request.diagnosis(),
+					request.doctorRemarks(),
+					request.doctorNotes(),
+					request.followUpOn(),
+					Timestamp.from(now),
+					clinicId,
+					id);
+			jdbcTemplate.update("delete from consultation_differentials where clinic_id = ? and consultation_id = ?", clinicId, id);
+		} else {
+			id = UuidV7.generate();
+			jdbcTemplate.update("""
+					insert into consultations (id, clinic_id, appointment_id, patient_id, doctor_user_id, subjective, history, examination, assessment, plan, diagnosis, doctor_remarks, doctor_notes, follow_up_on, status, created_at, updated_at)
+					values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'FINALIZED', ?, ?)
+					""",
+					id,
+					clinicId,
+					appointment.id(),
+					appointment.patientId(),
+					appointment.doctorUserId(),
+					request.subjective(),
+					request.history(),
+					request.examination(),
+					request.assessment(),
+					request.plan(),
+					request.diagnosis(),
+					request.doctorRemarks(),
+					request.doctorNotes(),
+					request.followUpOn(),
+					Timestamp.from(now),
+					Timestamp.from(now));
+		}
 		if (request.differentials() != null) {
 			int rank = 1;
 			for (DifferentialRequest differential : request.differentials()) {
@@ -312,20 +378,38 @@ public class ClinicalWorkflowService {
 
 	public PrescriptionResponse createPrescription(UUID clinicId, UUID actorId, PrescriptionCreateRequest request, String requestId) {
 		ConsultationResponse consultation = getConsultation(clinicId, request.consultationId());
-		UUID id = UuidV7.generate();
-		Instant now = Instant.now();
-		jdbcTemplate.update("""
-				insert into prescriptions (id, clinic_id, consultation_id, patient_id, doctor_user_id, status, notes, created_at, updated_at)
-				values (?, ?, ?, ?, ?, 'ISSUED', ?, ?, ?)
-				""",
-				id,
+		List<UUID> existingRxIds = jdbcTemplate.query(
+				"select id from prescriptions where clinic_id = ? and consultation_id = ?",
+				(rs, rowNum) -> (UUID) rs.getObject("id"),
 				clinicId,
-				consultation.id(),
-				consultation.patientId(),
-				consultation.doctorUserId(),
-				request.notes(),
-				Timestamp.from(now),
-				Timestamp.from(now));
+				consultation.id());
+		UUID id;
+		Instant now = Instant.now();
+		if (!existingRxIds.isEmpty()) {
+			id = existingRxIds.getFirst();
+			jdbcTemplate.update("""
+					update prescriptions set notes = ?, updated_at = ? where clinic_id = ? and id = ?
+					""",
+					request.notes(),
+					Timestamp.from(now),
+					clinicId,
+					id);
+			jdbcTemplate.update("delete from prescription_items where clinic_id = ? and prescription_id = ?", clinicId, id);
+		} else {
+			id = UuidV7.generate();
+			jdbcTemplate.update("""
+					insert into prescriptions (id, clinic_id, consultation_id, patient_id, doctor_user_id, status, notes, created_at, updated_at)
+					values (?, ?, ?, ?, ?, 'ISSUED', ?, ?, ?)
+					""",
+					id,
+					clinicId,
+					consultation.id(),
+					consultation.patientId(),
+					consultation.doctorUserId(),
+					request.notes(),
+					Timestamp.from(now),
+					Timestamp.from(now));
+		}
 		int order = 0;
 		for (PrescriptionItemRequest item : request.items()) {
 			jdbcTemplate.update("""
@@ -561,9 +645,197 @@ public class ClinicalWorkflowService {
 				Timestamp.from(paidAt),
 				clinicId,
 				invoice.id());
+		if ("PAID".equals(invoiceStatus)) {
+			autoDeductInventoryAndDispense(clinicId, actorId, invoice, requestId);
+		}
 		auditRecorder.record(clinicId, actorId, "PAY", "payment", paymentId, requestId);
 		return getPayment(clinicId, paymentId);
 	}
+
+	private void autoDeductInventoryAndDispense(UUID clinicId, UUID actorId, InvoiceResponse invoice, String requestId) {
+		List<InvoiceLineResponse> lines = jdbcTemplate.query("""
+				select id, source_type, source_id, description, quantity, unit_price, discount_amount, tax_rate, tax_amount, line_total
+				from invoice_lines where clinic_id = ? and invoice_id = ?
+				""",
+				(rs, rowNum) -> new InvoiceLineResponse(
+						rs.getObject("id", UUID.class),
+						rs.getString("source_type"),
+						rs.getObject("source_id", UUID.class),
+						rs.getString("description"),
+						rs.getBigDecimal("quantity"),
+						rs.getBigDecimal("unit_price"),
+						rs.getBigDecimal("discount_amount"),
+						rs.getBigDecimal("tax_rate"),
+						rs.getBigDecimal("tax_amount"),
+						rs.getBigDecimal("line_total")),
+				clinicId,
+				invoice.id());
+
+		for (InvoiceLineResponse line : lines) {
+			BigDecimal qtyToDeduct = line.quantity();
+			if (qtyToDeduct == null || qtyToDeduct.compareTo(BigDecimal.ZERO) <= 0) {
+				continue;
+			}
+
+			UUID targetProductId = null;
+			String medicineOrProductName = line.description();
+
+			if ("PRESCRIPTION_ITEM".equalsIgnoreCase(line.sourceType()) && line.sourceId() != null) {
+				List<Map<String, Object>> rxItems = jdbcTemplate.queryForList("""
+						select prescription_id, medicine_name from prescription_items
+						where clinic_id = ? and id = ?
+						""", clinicId, line.sourceId());
+
+				if (!rxItems.isEmpty()) {
+					Map<String, Object> itemMap = rxItems.getFirst();
+					UUID rxId = (UUID) itemMap.get("prescription_id");
+					medicineOrProductName = (String) itemMap.get("medicine_name");
+
+					if (rxId != null) {
+						jdbcTemplate.update("""
+								update prescriptions set status = 'DISPENSED', updated_at = now()
+								where id = ? and clinic_id = ? and status != 'DISPENSED'
+								""", rxId, clinicId);
+						auditRecorder.record(clinicId, actorId, "DISPENSE", "prescription", rxId, requestId);
+					}
+				}
+			} else if ("PRODUCT".equalsIgnoreCase(line.sourceType()) && line.sourceId() != null) {
+				targetProductId = line.sourceId();
+			}
+
+			String cleanName = medicineOrProductName;
+			if (cleanName != null) {
+				if (cleanName.contains("—")) cleanName = cleanName.split("—")[0].trim();
+				if (cleanName.contains("-")) cleanName = cleanName.split("-")[0].trim();
+				if (cleanName.contains("(")) cleanName = cleanName.split("\\(")[0].trim();
+			}
+
+			if (targetProductId == null && cleanName != null && !cleanName.isBlank()) {
+				List<UUID> matchingProductIds = jdbcTemplate.query("""
+						select id from products
+						where clinic_id = ? and (
+							lower(name) = lower(?)
+							or lower(sku) = lower(?)
+							or lower(?) like concat('%', lower(name), '%')
+							or lower(name) like concat('%', lower(?), '%')
+						)
+						order by case when lower(name) = lower(?) then 0 else 1 end
+						limit 1
+						""",
+						(rs, rowNum) -> rs.getObject("id", UUID.class),
+						clinicId, cleanName, cleanName, cleanName, cleanName, cleanName);
+
+				if (!matchingProductIds.isEmpty()) {
+					targetProductId = matchingProductIds.getFirst();
+				} else if ("PRESCRIPTION_ITEM".equalsIgnoreCase(line.sourceType()) || "PRODUCT".equalsIgnoreCase(line.sourceType())) {
+					UUID newProdId = UuidV7.generate();
+					String sku = "MED-" + (System.currentTimeMillis() % 1000000);
+					jdbcTemplate.update("""
+							insert into products (id, clinic_id, sku, name, unit, sale_price, status, purchase_price)
+							values (?, ?, ?, ?, 'UNIT', ?, 'ACTIVE', 0)
+							""",
+							newProdId, clinicId, sku, cleanName,
+							line.unitPrice() != null ? line.unitPrice() : BigDecimal.ZERO);
+					targetProductId = newProdId;
+				}
+			}
+
+			if (targetProductId != null) {
+				String ref = "POS Auto-Dispense: Invoice #" + invoice.invoiceNumber() + " (" + line.description() + ")";
+				deductProductStockFifo(clinicId, invoice.branchId(), targetProductId, qtyToDeduct, ref, actorId, requestId);
+			}
+		}
+
+		if (invoice.patientId() != null) {
+			List<UUID> pendingRxIds = jdbcTemplate.query("""
+					select p.id from prescriptions p
+					where p.clinic_id = ? and p.patient_id = ? and p.status = 'ISSUED'
+					order by p.created_at desc limit 1
+					""",
+					(rs, rowNum) -> rs.getObject("id", UUID.class),
+					clinicId, invoice.patientId());
+
+			for (UUID rxId : pendingRxIds) {
+				jdbcTemplate.update("""
+						update prescriptions set status = 'DISPENSED', updated_at = now()
+						where id = ? and clinic_id = ? and status != 'DISPENSED'
+						""", rxId, clinicId);
+				auditRecorder.record(clinicId, actorId, "DISPENSE", "prescription", rxId, requestId);
+			}
+		}
+	}
+
+	private void deductProductStockFifo(UUID clinicId, UUID branchId, UUID productId, BigDecimal quantityToDeduct, String reference, UUID actorId, String requestId) {
+		if (quantityToDeduct == null || quantityToDeduct.compareTo(BigDecimal.ZERO) <= 0) {
+			return;
+		}
+
+		List<BatchStockRow> batches = jdbcTemplate.query("""
+				select id, quantity_on_hand
+				from inventory_batches
+				where clinic_id = ? and product_id = ? and quantity_on_hand > 0
+				order by expires_on asc nulls last, id asc
+				""",
+				(rs, rowNum) -> new BatchStockRow(rs.getObject("id", UUID.class), rs.getBigDecimal("quantity_on_hand")),
+				clinicId, productId);
+
+		BigDecimal remaining = quantityToDeduct;
+
+		for (BatchStockRow b : batches) {
+			if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
+			BigDecimal deduct = remaining.min(b.quantityOnHand());
+			BigDecimal newQty = b.quantityOnHand().subtract(deduct);
+
+			jdbcTemplate.update("""
+					update inventory_batches set quantity_on_hand = ? where id = ? and clinic_id = ?
+					""", newQty, b.id(), clinicId);
+
+			jdbcTemplate.update("""
+					insert into stock_movements (id, clinic_id, batch_id, movement_type, quantity, reference, created_at)
+					values (?, ?, ?, 'DISPENSE', ?, ?, now())
+					""", UuidV7.generate(), clinicId, b.id(), deduct.negate(), reference);
+
+			auditRecorder.record(clinicId, actorId, "DISPENSE", "inventory_batch", b.id(), requestId);
+			remaining = remaining.subtract(deduct);
+		}
+
+		if (remaining.compareTo(BigDecimal.ZERO) > 0) {
+			List<UUID> existingBatches = jdbcTemplate.query("""
+					select id from inventory_batches
+					where clinic_id = ? and product_id = ?
+					order by expires_on desc nulls last, id asc limit 1
+					""",
+					(rs, rowNum) -> rs.getObject("id", UUID.class),
+					clinicId, productId);
+
+			UUID targetBatchId;
+			if (!existingBatches.isEmpty()) {
+				targetBatchId = existingBatches.getFirst();
+			} else {
+				UUID targetBranchId = branchId;
+				if (targetBranchId == null) {
+					targetBranchId = jdbcTemplate.queryForObject(
+							"select id from branches where clinic_id = ? order by created_at limit 1",
+							UUID.class,
+							clinicId);
+				}
+				targetBatchId = UuidV7.generate();
+				jdbcTemplate.update("""
+						insert into inventory_batches (id, clinic_id, product_id, branch_id, quantity_on_hand, cost_price)
+						values (?, ?, ?, ?, 0, 0)
+						""", targetBatchId, clinicId, productId, targetBranchId);
+			}
+
+			jdbcTemplate.update("""
+					insert into stock_movements (id, clinic_id, batch_id, movement_type, quantity, reference, created_at)
+					values (?, ?, ?, 'DISPENSE', ?, ?, now())
+					""", UuidV7.generate(), clinicId, targetBatchId, remaining.negate(), reference + " (Dispensed without prior batch stock)");
+
+			auditRecorder.record(clinicId, actorId, "DISPENSE", "inventory_batch", targetBatchId, requestId);
+		}
+	}
+
+	private record BatchStockRow(UUID id, BigDecimal quantityOnHand) {}
 
 	private boolean hasDoctorOverlap(UUID clinicId, UUID doctorUserId, Instant startsAt, Instant endsAt) {
 		Integer overlaps = jdbcTemplate.queryForObject("""
@@ -833,10 +1105,10 @@ public class ClinicalWorkflowService {
 	private record LineDraft(UUID sourceId, String description, BigDecimal quantity, BigDecimal unitPrice, BigDecimal taxRate, BigDecimal taxAmount, BigDecimal lineTotal) {
 	}
 
-	public record ClientCreateRequest(String displayName, String phone, String email, String notes, boolean consentWhatsapp, boolean consentEmail) {
+	public record ClientCreateRequest(String displayName, String phone, String email, String notes, boolean consentWhatsapp, boolean consentEmail, String category) {
 	}
 
-	public record ClientResponse(UUID id, String displayName, String phone, String email, String notes, boolean consentWhatsapp, boolean consentEmail, String status, long version) {
+	public record ClientResponse(UUID id, String displayName, String phone, String email, String notes, boolean consentWhatsapp, boolean consentEmail, String status, String category, long version) {
 	}
 
 	public record PatientCreateRequest(UUID clientId, String name, String speciesCode, String breed, String sizeCategory, LocalDate dateOfBirth, String sexCode, String color, String microchip, String notes) {
@@ -1127,6 +1399,62 @@ public class ClinicalWorkflowService {
 	public record PatientTimelineResponse(PatientResponse patient, ClientResponse client, List<TimelineEvent> events) {}
 
 	public record PaymentCreateRequest(UUID invoiceId, String method, BigDecimal amount, String reference) {
+	}
+
+	public List<PrescriptionSummaryDto> listPrescriptions(UUID clinicId, String status) {
+		StringBuilder sql = new StringBuilder("""
+				select p.id, p.consultation_id, p.patient_id, pt.name as patient_name,
+				       pt.species_code, coalesce(pt.breed, '') as breed,
+				       c.display_name as client_name, coalesce(c.phone, '') as client_phone,
+				       u.display_name as doctor_name, p.status, coalesce(p.notes, '') as notes, p.created_at,
+				       coalesce(string_agg(pi.medicine_name || ' (' || pi.quantity || ' ' || coalesce(pi.dosage, '') || ')', ', '), '') as medicines
+				from prescriptions p
+				join patients pt on pt.id = p.patient_id and pt.clinic_id = p.clinic_id
+				join clients c on c.id = pt.client_id and c.clinic_id = p.clinic_id
+				join users u on u.id = p.doctor_user_id and u.clinic_id = p.clinic_id
+				left join prescription_items pi on pi.prescription_id = p.id and pi.clinic_id = p.clinic_id
+				where p.clinic_id = ?
+				""");
+		List<Object> params = new ArrayList<>();
+		params.add(clinicId);
+		if (status != null && !status.isBlank()) {
+			sql.append(" and p.status = ?");
+			params.add(status.trim().toUpperCase());
+		}
+		sql.append(" group by p.id, p.consultation_id, p.patient_id, pt.name, pt.species_code, pt.breed, c.display_name, c.phone, u.display_name, p.status, p.notes, p.created_at order by p.created_at desc limit 100");
+
+		return jdbcTemplate.query(sql.toString(),
+				(rs, rowNum) -> new PrescriptionSummaryDto(
+						rs.getObject("id", UUID.class),
+						rs.getObject("consultation_id", UUID.class),
+						rs.getObject("patient_id", UUID.class),
+						rs.getString("patient_name"),
+						rs.getString("species_code"),
+						rs.getString("breed"),
+						rs.getString("client_name"),
+						rs.getString("client_phone"),
+						rs.getString("doctor_name"),
+						rs.getString("status"),
+						rs.getString("notes"),
+						rs.getString("medicines"),
+						rs.getTimestamp("created_at").toInstant()),
+				params.toArray());
+	}
+
+	public record PrescriptionSummaryDto(
+			UUID id,
+			UUID consultationId,
+			UUID patientId,
+			String patientName,
+			String speciesCode,
+			String breed,
+			String clientName,
+			String clientPhone,
+			String doctorName,
+			String status,
+			String notes,
+			String medicines,
+			Instant createdAt) {
 	}
 
 	public record PaymentResponse(UUID id, UUID invoiceId, String method, BigDecimal amount, String status, String reference, String idempotencyKey, Instant paidAt) {

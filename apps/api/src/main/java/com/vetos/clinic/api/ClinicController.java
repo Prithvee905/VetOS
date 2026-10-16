@@ -60,6 +60,10 @@ public class ClinicController {
 			String phone,
 			String email,
 			String status,
+			BigDecimal maxStaffDiscountPercent,
+			BigDecimal loyalDiscountPercent,
+			BigDecimal ngoConsultationDiscountPercent,
+			boolean allowMedicineDiscount,
 			long version) {
 	}
 
@@ -72,7 +76,11 @@ public class ClinicController {
 			@DecimalMin("0") BigDecimal defaultTaxRate,
 			@Size(max = 32) String phone,
 			@Size(max = 320) String email,
-			@Pattern(regexp = "ACTIVE|SUSPENDED") String status) {
+			@Pattern(regexp = "ACTIVE|SUSPENDED") String status,
+			@DecimalMin("0") BigDecimal maxStaffDiscountPercent,
+			@DecimalMin("0") BigDecimal loyalDiscountPercent,
+			@DecimalMin("0") BigDecimal ngoConsultationDiscountPercent,
+			Boolean allowMedicineDiscount) {
 	}
 
 }

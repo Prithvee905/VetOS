@@ -58,7 +58,23 @@ public class ClinicalControllers {
 						body.email(),
 						body.notes(),
 						body.resolvedConsentWhatsapp(),
-						body.resolvedConsentEmail()),
+						body.resolvedConsentEmail(),
+						body.resolvedCategory()),
+				RequestIds.from(request));
+	}
+
+	@PatchMapping("/clients/{clientId}/category")
+	public ClinicalWorkflowService.ClientResponse updateClientCategory(
+			@AuthenticationPrincipal VetosAuthentication authentication,
+			@PathVariable UUID clientId,
+			@Valid @RequestBody ClientCategoryUpdateBody body,
+			HttpServletRequest request) {
+		authorizationSupport.requirePermission(authentication, "PATIENT_WRITE");
+		return clinicalWorkflowService.updateClientCategory(
+				authentication.clinicId(),
+				authentication.userId(),
+				clientId,
+				body.category(),
 				RequestIds.from(request));
 	}
 
@@ -140,6 +156,16 @@ public class ClinicalControllers {
 		return clinicalWorkflowService.updateQueueStatus(authentication.clinicId(), authentication.userId(), queueId, body.status(), RequestIds.from(request));
 	}
 
+	@PatchMapping("/queue/{queueId}/doctor")
+	public ClinicalWorkflowService.QueueEntryResponse reassignDoctor(
+			@AuthenticationPrincipal VetosAuthentication authentication,
+			@PathVariable UUID queueId,
+			@Valid @RequestBody QueueReassignDoctorBody body,
+			HttpServletRequest request) {
+		authorizationSupport.requirePermission(authentication, "QUEUE_WRITE");
+		return clinicalWorkflowService.updateQueueDoctor(authentication.clinicId(), authentication.userId(), queueId, body.doctorUserId(), RequestIds.from(request));
+	}
+
 	@PostMapping("/consultations")
 	@ResponseStatus(HttpStatus.CREATED)
 	public ClinicalWorkflowService.ConsultationResponse createConsultation(
@@ -148,6 +174,13 @@ public class ClinicalControllers {
 			HttpServletRequest request) {
 		authorizationSupport.requirePermission(authentication, "CONSULTATION_WRITE");
 		return clinicalWorkflowService.createConsultation(authentication.clinicId(), authentication.userId(), body, RequestIds.from(request));
+	}
+
+	@GetMapping("/prescriptions")
+	public List<ClinicalWorkflowService.PrescriptionSummaryDto> listPrescriptions(
+			@AuthenticationPrincipal VetosAuthentication authentication,
+			@RequestParam(required = false) String status) {
+		return clinicalWorkflowService.listPrescriptions(authentication.clinicId(), status);
 	}
 
 	@PostMapping("/prescriptions")
@@ -191,7 +224,8 @@ public class ClinicalControllers {
 			String email,
 			String notes,
 			Boolean consentWhatsapp,
-			Boolean consentEmail) {
+			Boolean consentEmail,
+			String category) {
 
 		public boolean resolvedConsentWhatsapp() {
 			return Boolean.TRUE.equals(consentWhatsapp);
@@ -200,9 +234,19 @@ public class ClinicalControllers {
 		public boolean resolvedConsentEmail() {
 			return Boolean.TRUE.equals(consentEmail);
 		}
+
+		public String resolvedCategory() {
+			return category != null && !category.isBlank() ? category.trim().toUpperCase() : "STANDARD";
+		}
+	}
+
+	public record ClientCategoryUpdateBody(String category) {
 	}
 
 	public record QueueStatusBody(@NotBlank String status) {
+	}
+
+	public record QueueReassignDoctorBody(@NotNull UUID doctorUserId) {
 	}
 
 	public record PrescriptionCreateBody(

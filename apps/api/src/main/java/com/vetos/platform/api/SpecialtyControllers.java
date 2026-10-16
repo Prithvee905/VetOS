@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -67,7 +68,7 @@ public class SpecialtyControllers {
 		return specialtyService.createLabOrder(
 				auth.clinicId(),
 				auth.userId(),
-				new SpecialtyService.LabOrderCreateRequest(body.patientId(), body.testName()),
+				new SpecialtyService.LabOrderCreateRequest(body.patientId(), body.testName(), body.chargeAmount()),
 				RequestIds.from(request));
 	}
 
@@ -99,7 +100,7 @@ public class SpecialtyControllers {
 		return specialtyService.scheduleSurgery(
 				auth.clinicId(),
 				auth.userId(),
-				new SpecialtyService.SurgeryCreateRequest(body.patientId(), body.procedureName(), body.scheduledAt()),
+				new SpecialtyService.SurgeryCreateRequest(body.patientId(), body.procedureName(), body.scheduledAt(), body.chargeAmount()),
 				RequestIds.from(request));
 	}
 
@@ -132,7 +133,7 @@ public class SpecialtyControllers {
 		return specialtyService.admitPatient(
 				auth.clinicId(),
 				auth.userId(),
-				new SpecialtyService.AdmissionRequest(body.patientId()),
+				new SpecialtyService.AdmissionRequest(body.patientId(), body.dailyRate()),
 				RequestIds.from(request));
 	}
 
@@ -163,7 +164,7 @@ public class SpecialtyControllers {
 		return specialtyService.bookGrooming(
 				auth.clinicId(),
 				auth.userId(),
-				new SpecialtyService.GroomingBookingRequest(body.patientId(), body.scheduledAt(), body.notes()),
+				new SpecialtyService.GroomingBookingRequest(body.patientId(), body.scheduledAt(), body.dogSize(), body.chargeAmount(), body.notes()),
 				RequestIds.from(request));
 	}
 
@@ -186,19 +187,24 @@ public class SpecialtyControllers {
 
 	public record LabOrderBody(
 			@NotNull UUID patientId,
-			@NotBlank String testName) {}
+			@NotBlank String testName,
+			BigDecimal chargeAmount) {}
 
 	public record SurgeryBody(
 			@NotNull UUID patientId,
 			@NotBlank String procedureName,
-			@NotNull Instant scheduledAt) {}
+			@NotNull Instant scheduledAt,
+			BigDecimal chargeAmount) {}
 
 	public record AdmissionBody(
-			@NotNull UUID patientId) {}
+			@NotNull UUID patientId,
+			BigDecimal dailyRate) {}
 
 	public record GroomingBody(
 			@NotNull UUID patientId,
 			@NotNull Instant scheduledAt,
+			String dogSize,
+			BigDecimal chargeAmount,
 			String notes) {}
 
 	public record StatusBody(
