@@ -3,7 +3,7 @@
 # Reverse Proxy with Automatic HTTPS via Let's Encrypt / ZeroSSL
 # ==============================================================================
 
-{$APP_DOMAIN:localhost} {
+:80 {
     # Modern compression (zstd and gzip)
     encode zstd gzip
 
