@@ -60,6 +60,12 @@ import {
   Syringe,
 } from "lucide-react";
 import { PrintableDocumentModal } from "@/components/printable-document-modal";
+import {
+  VETERINARY_DIAGNOSTIC_CATEGORIES,
+  ALL_VETERINARY_DIAGNOSES,
+  STANDARD_VETERINARY_MEDICINES,
+  PRESCRIPTION_CLINICAL_PACKS,
+} from "@/lib/clinical-constants";
 
 type ActiveTab = "queue" | "appointments" | "soap" | "pos" | "register";
 
@@ -317,6 +323,8 @@ export default function ClinicOperationsStation() {
 
   // A - Assessment
   const [primaryDiagnosis, setPrimaryDiagnosis] = useState("Acute Gastritis / Dietary Indiscretion");
+  const [selectedDiagCategory, setSelectedDiagCategory] = useState<string>("Common & Frequent");
+  const [showDiagBrowser, setShowDiagBrowser] = useState(false);
   const [differentials, setDifferentials] = useState<DifferentialItem[]>([
     { label: "Gastroenteritis", rank: 1, notes: "Mild abdominal sensitivity" },
     { label: "Foreign Body Ingestion", rank: 2, notes: "Low probability based on palpation" },
@@ -335,7 +343,7 @@ export default function ClinicOperationsStation() {
   // Prescriptions state
   const [rxLines, setRxLines] = useState<RxLine[]>([
     {
-      medicineName: "Amoxicillin Clavulanate",
+      medicineName: "Amoxicillin & Clavulanate (Clavamox)",
       quantity: 10,
       dosage: "250mg",
       frequency: "BID (Twice daily)",
@@ -344,15 +352,52 @@ export default function ClinicOperationsStation() {
       instructions: "Give with food",
     },
     {
-      medicineName: "Pantoprazole",
+      medicineName: "Pantoprazole Tablets (Pan-40)",
       quantity: 5,
-      dosage: "20mg",
+      dosage: "40mg",
       frequency: "SID (Once daily)",
       duration: "5 days",
       route: "Oral",
       instructions: "Give on empty stomach 30 min before food",
     },
   ]);
+
+  function handleMedicineSelect(index: number, medName: string) {
+    const trimmed = medName.trim().toLowerCase();
+    const match = STANDARD_VETERINARY_MEDICINES.find(
+      (m) =>
+        m.name.toLowerCase() === trimmed ||
+        trimmed.includes(m.name.toLowerCase().split(" ")[0]) ||
+        m.name.toLowerCase().includes(trimmed)
+    );
+    if (match) {
+      setRxLines((prev) =>
+        prev.map((item, i) =>
+          i === index
+            ? {
+                ...item,
+                medicineName: match.name,
+                quantity: match.defaultQty,
+                dosage: match.defaultDosage,
+                frequency: match.defaultFrequency,
+                duration: match.defaultDuration,
+                route: match.defaultRoute,
+                instructions: match.defaultInstructions,
+              }
+            : item
+        )
+      );
+    } else {
+      setRxLines((prev) =>
+        prev.map((item, i) => (i === index ? { ...item, medicineName: medName } : item))
+      );
+    }
+  }
+
+  function applyClinicalPack(pack: (typeof PRESCRIPTION_CLINICAL_PACKS)[0]) {
+    setRxLines(pack.lines);
+    notifySuccess(`Applied ${pack.name} with standard dosing!`);
+  }
 
   // Last completed artifacts
   const [lastConsultationId, setLastConsultationId] = useState<string | null>(null);
@@ -2437,21 +2482,84 @@ export default function ClinicOperationsStation() {
 
             {/* A: Assessment */}
             <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm flex flex-col gap-3">
-              <div className="flex items-center gap-2">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-teal-800 text-xs font-bold text-white">
-                  A
-                </span>
-                <h3 className="text-base font-bold text-slate-900">Assessment (Diagnosis & Differentials)</h3>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-teal-800 text-xs font-bold text-white">
+                    A
+                  </span>
+                  <h3 className="text-base font-bold text-slate-900">Assessment (Diagnosis & Differentials)</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowDiagBrowser(!showDiagBrowser)}
+                  className="text-xs font-semibold text-teal-700 hover:text-teal-900 flex items-center gap-1 bg-teal-50 hover:bg-teal-100 border border-teal-200 px-2.5 py-1 rounded-md transition-colors"
+                >
+                  {showDiagBrowser ? "Hide Catalog ▲" : "📖 Quick Diagnosis Catalog ▼"}
+                </button>
               </div>
+
+              {/* Quick Diagnostic Catalog Browser */}
+              {showDiagBrowser && (
+                <div className="rounded-lg border border-teal-200 bg-teal-50/50 p-3 space-y-2">
+                  <div className="flex flex-wrap gap-1.5 border-b border-teal-200/70 pb-2">
+                    {VETERINARY_DIAGNOSTIC_CATEGORIES.map((cat) => (
+                      <button
+                        key={cat.category}
+                        type="button"
+                        onClick={() => setSelectedDiagCategory(cat.category)}
+                        className={`text-[11px] px-2 py-1 rounded-md font-semibold transition-colors ${
+                          selectedDiagCategory === cat.category
+                            ? "bg-teal-700 text-white shadow-xs"
+                            : "bg-white text-teal-900 hover:bg-teal-100/80 border border-teal-200"
+                        }`}
+                      >
+                        {cat.icon} {cat.category}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5 pt-1 max-h-36 overflow-y-auto">
+                    {(
+                      VETERINARY_DIAGNOSTIC_CATEGORIES.find((c) => c.category === selectedDiagCategory)?.diagnoses || []
+                    ).map((diag) => (
+                      <button
+                        key={diag}
+                        type="button"
+                        onClick={() => setPrimaryDiagnosis(diag)}
+                        title="Click to set as Primary Diagnosis"
+                        className={`text-[11px] px-2.5 py-1 rounded-full border transition-all text-left ${
+                          primaryDiagnosis === diag
+                            ? "bg-teal-800 text-white border-teal-900 font-bold"
+                            : "bg-white text-slate-800 border-slate-300 hover:border-teal-500 hover:bg-teal-50"
+                        }`}
+                      >
+                        + {diag}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div>
-                <label className="text-xs font-semibold text-slate-600">Primary Diagnosis</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-600">Primary Diagnosis</label>
+                  <span className="text-[10px] text-teal-700 font-medium">✨ Auto-suggest active (60+ standard diagnoses)</span>
+                </div>
                 <input
                   type="text"
-                  className="mt-1 w-full rounded-md border border-slate-300 p-2 text-sm font-semibold text-slate-900 focus:border-teal-600 focus:outline-none"
+                  list="veterinary-primary-diagnoses-list"
+                  className="mt-1 w-full rounded-md border border-slate-300 p-2 text-sm font-semibold text-slate-900 focus:border-teal-600 focus:outline-none bg-white shadow-2xs"
                   value={primaryDiagnosis}
                   onChange={(e) => setPrimaryDiagnosis(e.target.value)}
+                  placeholder="Type to search standard veterinary diagnoses…"
                 />
+                <datalist id="veterinary-primary-diagnoses-list">
+                  {ALL_VETERINARY_DIAGNOSES.map((d) => (
+                    <option key={d} value={d} />
+                  ))}
+                </datalist>
               </div>
+
               <div>
                 <label className="text-xs font-semibold text-slate-600">Differential Diagnoses (Ranked)</label>
                 <div className="mt-2 space-y-2">
@@ -2474,6 +2582,7 @@ export default function ClinicOperationsStation() {
                 <div className="mt-3 flex gap-2">
                   <input
                     type="text"
+                    list="veterinary-primary-diagnoses-list"
                     placeholder="Add differential diagnosis…"
                     className="flex-1 rounded-md border border-slate-300 px-3 py-1 text-xs"
                     value={newDiffLabel}
@@ -2539,54 +2648,84 @@ export default function ClinicOperationsStation() {
 
           {/* Integrated Digital Prescription Writer */}
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-100 pb-3 gap-2">
               <div>
                 <h3 className="text-base font-bold text-slate-900">Digital Prescription (Rx)</h3>
                 <p className="text-xs text-slate-500">Meds will automatically be sent to pharmacy and billing basket.</p>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  setRxLines((prev) => [
-                    ...prev,
-                    {
-                      medicineName: "",
-                      quantity: 1,
-                      dosage: "1 tab",
-                      frequency: "BID",
-                      duration: "5 days",
-                      route: "Oral",
-                      instructions: "With food",
-                    },
-                  ])
-                }
-              >
-                + Add Medication
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    setRxLines((prev) => [
+                      ...prev,
+                      {
+                        medicineName: "",
+                        quantity: 1,
+                        dosage: "1 tab",
+                        frequency: "BID",
+                        duration: "5 days",
+                        route: "Oral",
+                        instructions: "With food",
+                      },
+                    ])
+                  }
+                >
+                  + Add Medication
+                </Button>
+              </div>
             </div>
+
+            {/* Quick Treatment Protocol Packs */}
+            <div className="mt-3 rounded-lg bg-teal-50/60 border border-teal-200 p-2.5">
+              <div className="text-[11px] font-bold text-teal-950 mb-1.5 flex items-center gap-1">
+                <span>⚡ 1-Click Clinical Treatment Packs:</span>
+                <span className="text-teal-700 font-normal">Pre-loads standard veterinary prescription regimens</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {PRESCRIPTION_CLINICAL_PACKS.map((pack) => (
+                  <button
+                    key={pack.name}
+                    type="button"
+                    onClick={() => applyClinicalPack(pack)}
+                    title={pack.description}
+                    className="text-[11px] font-semibold bg-white text-teal-900 hover:bg-teal-700 hover:text-white border border-teal-300 rounded-md px-2.5 py-1 transition-all flex items-center gap-1 shadow-2xs"
+                  >
+                    <span>{pack.icon}</span>
+                    <span>{pack.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <datalist id="veterinary-medications-catalog-list">
+              {STANDARD_VETERINARY_MEDICINES.map((m) => (
+                <option key={m.name} value={m.name}>
+                  {m.brand} • {m.category} • {m.defaultDosage} {m.defaultFrequency}
+                </option>
+              ))}
+            </datalist>
 
             <div className="mt-4 space-y-3">
               {rxLines.map((line, index) => (
                 <div key={index} className="grid grid-cols-1 md:grid-cols-7 gap-2 rounded-lg bg-slate-50 p-3 border border-slate-200 text-xs">
                   <div className="md:col-span-2">
-                    <label className="font-semibold text-slate-600">Medicine Name</label>
+                    <label className="font-semibold text-slate-600">Medicine Name (Auto-fills Rx)</label>
                     <input
                       type="text"
-                      className="mt-1 w-full rounded border border-slate-300 p-1.5"
+                      list="veterinary-medications-catalog-list"
+                      className="mt-1 w-full rounded border border-slate-300 p-1.5 font-medium text-slate-900 bg-white"
                       value={line.medicineName}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setRxLines((prev) => prev.map((item, i) => (i === index ? { ...item, medicineName: val } : item)));
-                      }}
-                      placeholder="e.g. Amoxicillin"
+                      onChange={(e) => handleMedicineSelect(index, e.target.value)}
+                      placeholder="e.g. Clavamox, Melonex, Pan-40…"
                     />
                   </div>
                   <div>
                     <label className="font-semibold text-slate-600">Qty</label>
                     <input
                       type="number"
-                      className="mt-1 w-full rounded border border-slate-300 p-1.5"
+                      className="mt-1 w-full rounded border border-slate-300 p-1.5 bg-white"
                       value={line.quantity}
                       onChange={(e) => {
                         const val = Number(e.target.value);
@@ -2598,7 +2737,7 @@ export default function ClinicOperationsStation() {
                     <label className="font-semibold text-slate-600">Dosage</label>
                     <input
                       type="text"
-                      className="mt-1 w-full rounded border border-slate-300 p-1.5"
+                      className="mt-1 w-full rounded border border-slate-300 p-1.5 bg-white"
                       value={line.dosage}
                       onChange={(e) => {
                         const val = e.target.value;
@@ -2610,8 +2749,8 @@ export default function ClinicOperationsStation() {
                     <label className="font-semibold text-slate-600">Freq / Duration</label>
                     <input
                       type="text"
-                      className="mt-1 w-full rounded border border-slate-300 p-1.5"
-                      value={`${line.frequency} (${line.duration})`}
+                      className="mt-1 w-full rounded border border-slate-300 p-1.5 bg-white"
+                      value={line.frequency ? `${line.frequency}${line.duration ? ` (${line.duration})` : ""}` : ""}
                       onChange={(e) => {
                         const val = e.target.value;
                         setRxLines((prev) => prev.map((item, i) => (i === index ? { ...item, frequency: val } : item)));
@@ -2622,7 +2761,7 @@ export default function ClinicOperationsStation() {
                     <label className="font-semibold text-slate-600">Instructions</label>
                     <input
                       type="text"
-                      className="mt-1 w-full rounded border border-slate-300 p-1.5"
+                      className="mt-1 w-full rounded border border-slate-300 p-1.5 bg-white"
                       value={line.instructions}
                       onChange={(e) => {
                         const val = e.target.value;

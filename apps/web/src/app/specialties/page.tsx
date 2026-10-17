@@ -26,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Paperclip, ShoppingCart } from "lucide-react";
 import { FileAttachmentsModal } from "@/components/file-attachments-modal";
+import { STANDARD_VETERINARY_SURGERIES, type StandardSurgery } from "@/lib/clinical-constants";
 
 const GROOMING_TIER_RATES = {
   SMALL: 600,
@@ -55,6 +56,13 @@ export default function SpecialtiesPage() {
 
   const [procedureName, setProcedureName] = useState("");
   const [surgeryCharge, setSurgeryCharge] = useState("3500");
+  const [selectedSurgeryCategory, setSelectedSurgeryCategory] = useState<string>("ALL");
+
+  function handleQuickSchedule(surgery: StandardSurgery) {
+    setProcedureName(surgery.name);
+    setSurgeryCharge(surgery.defaultCharge.toString());
+    setShowSurgeryModal(true);
+  }
   const [scheduledAt, setScheduledAt] = useState(new Date().toISOString().slice(0, 16));
 
   const [dailyRate, setDailyRate] = useState("800");
@@ -483,6 +491,87 @@ export default function SpecialtiesPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Standard Veterinary Surgical Procedure Catalog Showcase */}
+          <div className="mt-8 border-t border-slate-200 pt-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                  <span>✂️ Standard Surgical Procedures & Procedure Fee Directory</span>
+                  <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-bold text-teal-800">
+                    {STANDARD_VETERINARY_SURGERIES.length} Pre-configured Surgeries
+                  </span>
+                </h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Standard clinical operations with pre-set surgical codes, typical operating theater charges, and 1-click scheduling.
+                </p>
+              </div>
+
+              {/* Category Filter Pills */}
+              <div className="flex flex-wrap gap-1">
+                {["ALL", "Reproductive", "Soft Tissue", "Emergency", "Orthopedic", "Dental", "Ophthalmic"].map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setSelectedSurgeryCategory(cat)}
+                    className={`text-[11px] px-2.5 py-1 rounded-md font-semibold transition-colors ${
+                      selectedSurgeryCategory === cat
+                        ? "bg-teal-700 text-white shadow-2xs"
+                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {STANDARD_VETERINARY_SURGERIES.filter(
+                (s) => selectedSurgeryCategory === "ALL" || s.category === selectedSurgeryCategory
+              ).map((s) => (
+                <div
+                  key={s.code}
+                  className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 hover:border-teal-300 hover:bg-teal-50/30 transition-all flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-800">
+                        {s.code}
+                      </span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        s.category === "Emergency"
+                          ? "bg-rose-100 text-rose-800"
+                          : s.category === "Orthopedic"
+                          ? "bg-amber-100 text-amber-800"
+                          : s.category === "Reproductive"
+                          ? "bg-indigo-100 text-indigo-800"
+                          : "bg-teal-100 text-teal-800"
+                      }`}>
+                        {s.category} ({s.species})
+                      </span>
+                    </div>
+                    <h5 className="font-bold text-xs text-slate-900 mt-2">{s.name}</h5>
+                    <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">{s.description}</p>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-200/60">
+                    <div>
+                      <span className="text-[10px] text-slate-500">Standard Fee:</span>
+                      <span className="text-xs font-bold text-slate-900 ml-1">₹{s.defaultCharge.toLocaleString("en-IN")}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickSchedule(s)}
+                      className="text-xs font-semibold bg-white hover:bg-teal-700 hover:text-white border border-teal-300 text-teal-800 rounded px-2.5 py-1 transition-colors shadow-2xs"
+                    >
+                      + Schedule
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -737,14 +826,43 @@ export default function SpecialtiesPage() {
                 </select>
               </div>
               <div>
+                <label className="text-xs font-semibold text-slate-700">Quick Select Standard Surgery</label>
+                <select
+                  className="mt-1 w-full rounded border border-teal-300 bg-teal-50/50 p-2 text-xs font-semibold text-teal-950 focus:border-teal-600 focus:bg-white"
+                  onChange={(e) => {
+                    const found = STANDARD_VETERINARY_SURGERIES.find((s) => s.code === e.target.value);
+                    if (found) {
+                      setProcedureName(found.name);
+                      setSurgeryCharge(found.defaultCharge.toString());
+                    }
+                  }}
+                  defaultValue=""
+                >
+                  <option value="">-- Choose standard surgical procedure (18 presets) --</option>
+                  {STANDARD_VETERINARY_SURGERIES.map((s) => (
+                    <option key={s.code} value={s.code}>
+                      [{s.category}] {s.name} — ₹{s.defaultCharge} ({s.species})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label className="text-xs font-semibold text-slate-700">Procedure Name *</label>
                 <input
                   type="text"
+                  list="standard-surgeries-datalist"
                   value={procedureName}
                   onChange={(e) => setProcedureName(e.target.value)}
                   className="mt-1 w-full rounded border border-slate-300 p-2 text-sm"
                   placeholder="e.g. Ovariohysterectomy (Spay) or Orthopedic Fixation"
                 />
+                <datalist id="standard-surgeries-datalist">
+                  {STANDARD_VETERINARY_SURGERIES.map((s) => (
+                    <option key={s.code} value={s.name}>
+                      {s.category} • ₹{s.defaultCharge} ({s.species})
+                    </option>
+                  ))}
+                </datalist>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>

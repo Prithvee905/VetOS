@@ -16,6 +16,8 @@ export default function ServicesCatalogPage() {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [defaultPrice, setDefaultPrice] = useState("500");
+  const [filterCategory, setFilterCategory] = useState<string>("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -123,14 +125,46 @@ export default function ServicesCatalogPage() {
 
         {/* Right: Services List Table */}
         <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 gap-3">
             <div>
               <h3 className="text-base font-bold text-slate-900">Standard Catalog Items ({services.data?.length ?? 0})</h3>
               <p className="text-xs text-slate-500">Available across all clinic branches and POS billing carts</p>
             </div>
-            <Button size="sm" variant="outline" onClick={() => services.refetch()}>
-              ↻ Refresh
-            </Button>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Search services / codes…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="rounded-md border border-slate-300 px-2.5 py-1 text-xs w-44 focus:border-teal-500 focus:outline-hidden"
+              />
+              <Button size="sm" variant="outline" onClick={() => services.refetch()}>
+                ↻ Refresh
+              </Button>
+            </div>
+          </div>
+
+          {/* Category Tabs */}
+          <div className="flex flex-wrap gap-1.5 pt-3 pb-2 border-b border-slate-100">
+            {[
+              { id: "ALL", label: `All (${services.data?.length ?? 0})` },
+              { id: "SURGERIES", label: "✂️ Surgeries" },
+              { id: "CLINICAL", label: "🩺 Consult & Procedures" },
+              { id: "DIAGNOSTICS", label: "🔬 Lab & Diagnostics" },
+            ].map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setFilterCategory(cat.id)}
+                className={`text-xs px-2.5 py-1 rounded-md font-semibold transition-colors ${
+                  filterCategory === cat.id
+                    ? "bg-teal-700 text-white shadow-2xs"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
           </div>
 
           {services.isLoading ? (
@@ -150,14 +184,25 @@ export default function ServicesCatalogPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {services.data?.map((item: ServiceItem) => {
-                    const isActive = item.status === "ACTIVE";
-                    return (
-                      <tr key={item.id} className="hover:bg-slate-50/70">
-                        <td className="px-3 py-3 font-mono font-bold text-xs text-teal-800">{item.code}</td>
-                        <td className="px-3 py-3 font-medium text-slate-900">{item.name}</td>
-                        <td className="px-3 py-3 font-semibold text-slate-800">₹{item.defaultPrice}</td>
-                        <td className="px-3 py-3">
+                  {(services.data ?? [])
+                    .filter((item: ServiceItem) => {
+                      if (filterCategory === "SURGERIES" && !item.code.startsWith("SURG-")) return false;
+                      if (filterCategory === "CLINICAL" && !item.code.startsWith("CONS-") && !item.code.startsWith("PROC-")) return false;
+                      if (filterCategory === "DIAGNOSTICS" && !item.code.startsWith("DIAG-")) return false;
+                      if (searchQuery.trim()) {
+                        const q = searchQuery.toLowerCase();
+                        return item.code.toLowerCase().includes(q) || item.name.toLowerCase().includes(q);
+                      }
+                      return true;
+                    })
+                    .map((item: ServiceItem) => {
+                      const isActive = item.status === "ACTIVE";
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-50/70">
+                          <td className="px-3 py-3 font-mono font-bold text-xs text-teal-800">{item.code}</td>
+                          <td className="px-3 py-3 font-medium text-slate-900">{item.name}</td>
+                          <td className="px-3 py-3 font-semibold text-slate-800">₹{Number(item.defaultPrice).toLocaleString("en-IN")}</td>
+                          <td className="px-3 py-3">
                           <span
                             className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
                               isActive ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"

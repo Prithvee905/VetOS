@@ -19,6 +19,7 @@ import {
   type ClientRow,
 } from "@/lib/api";
 import { PrintableDocumentModal, type PrescriptionPrintData, type InvoicePrintData } from "@/components/printable-document-modal";
+import { ALL_VETERINARY_DIAGNOSES, STANDARD_VETERINARY_MEDICINES } from "@/lib/clinical-constants";
 
 export type PrescriptionItemDraft = {
   id: string;
@@ -449,16 +450,25 @@ export function RecordSoapModal({
 
             {/* 3. DIAGNOSIS (ASSESSMENT) */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Diagnosis (Assessment)
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Diagnosis (Assessment)
+                </label>
+                <span className="text-[10px] text-teal-700 font-medium">✨ Auto-suggest active</span>
+              </div>
               <input
                 type="text"
-                placeholder="e.g. Atopic Dermatitis"
+                list="soap-modal-diagnoses-list"
+                placeholder="e.g. Acute Gastroenteritis, Canine Ehrlichiosis, Atopic Dermatitis…"
                 value={diagnosis}
                 onChange={(e) => setDiagnosis(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 py-2 text-sm text-slate-900 shadow-2xs focus:border-teal-500 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-teal-500 placeholder-slate-400 transition"
               />
+              <datalist id="soap-modal-diagnoses-list">
+                {ALL_VETERINARY_DIAGNOSES.map((d) => (
+                  <option key={d} value={d} />
+                ))}
+              </datalist>
             </div>
 
             {/* 4. DIFFERENTIALS */}
@@ -468,6 +478,7 @@ export function RecordSoapModal({
               </label>
               <input
                 type="text"
+                list="soap-modal-diagnoses-list"
                 placeholder="e.g. Flea Allergy Dermatitis, Food Allergy, Contact Dermatitis"
                 value={differentials}
                 onChange={(e) => setDifferentials(e.target.value)}
@@ -578,14 +589,40 @@ export function RecordSoapModal({
               </div>
 
               {/* Form inputs in single inline flex row */}
+              <datalist id="soap-modal-medicines-list">
+                {STANDARD_VETERINARY_MEDICINES.map((m) => (
+                  <option key={m.name} value={m.name}>
+                    {m.brand} • {m.category} • {m.defaultDosage}
+                  </option>
+                ))}
+              </datalist>
+
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-7">
                 <div className="sm:col-span-2">
                   <input
                     type="text"
-                    placeholder="Medicine"
+                    list="soap-modal-medicines-list"
+                    placeholder="Medicine (Auto-fills)"
                     value={medName}
-                    onChange={(e) => setMedName(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:border-teal-500 focus:outline-hidden"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setMedName(val);
+                      const match = STANDARD_VETERINARY_MEDICINES.find(
+                        (m) => m.name.toLowerCase() === val.trim().toLowerCase() ||
+                               val.trim().toLowerCase().includes(m.name.toLowerCase().split(" ")[0])
+                      );
+                      if (match) {
+                        setMedDosage(match.defaultDosage);
+                        if (match.defaultInstructions.toLowerCase().includes("before")) {
+                          setMedInstructions("Before food");
+                        } else if (match.defaultInstructions.toLowerCase().includes("after")) {
+                          setMedInstructions("After food");
+                        } else {
+                          setMedInstructions("With food");
+                        }
+                      }
+                    }}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:border-teal-500 focus:outline-hidden font-medium"
                   />
                 </div>
 
