@@ -54,6 +54,7 @@ export function AppShell({ children, title }: { children: React.ReactNode; title
     queryKey: ["session"],
     queryFn: currentUser,
     retry: false,
+    staleTime: 5 * 60 * 1000,
   });
 
   const searchResults = useQuery({
