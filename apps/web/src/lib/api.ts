@@ -931,10 +931,101 @@ export type ReminderRunSummary = {
   appointmentsReminded: number;
   vaccinationsReminded: number;
   dewormingsReminded: number;
+  followupsReminded?: number;
+};
+
+export type FollowUpCandidate = {
+  consultationId: string;
+  patientId: string;
+  patientName: string;
+  clientName: string;
+  phone: string;
+  email: string;
+  doctorName: string;
+  followUpOn: string;
+};
+
+export type VaxReminderCandidate = {
+  id: string;
+  vaccineName: string;
+  nextDueOn: string;
+  patientName: string;
+  clientName: string;
+  phone: string;
+};
+
+export type DewormReminderCandidate = {
+  id: string;
+  productName: string;
+  nextDueOn: string;
+  patientName: string;
+  clientName: string;
+  phone: string;
+};
+
+export type ApptReminderCandidate = {
+  id: string;
+  startsAt: string;
+  patientName: string;
+  clientName: string;
+  phone: string;
+  email: string;
+};
+
+export type LapsedClientCandidate = {
+  clientId: string;
+  clientName: string;
+  phone: string;
+  email: string;
+  lastVisit: string;
+  visitCount: number;
+  patientNames: string;
+};
+
+export type AllClientCandidate = {
+  clientId: string;
+  clientName: string;
+  phone: string;
+  email: string;
+  patientNames: string;
+};
+
+export type ReminderCohortsDto = {
+  followUpsDue: FollowUpCandidate[];
+  vaccinationsDue: VaxReminderCandidate[];
+  dewormingsDue: DewormReminderCandidate[];
+  appointmentsDue: ApptReminderCandidate[];
+  lapsedClients: LapsedClientCandidate[];
+  allClients: AllClientCandidate[];
+};
+
+export type BroadcastPayload = {
+  cohort: "FOLLOWUPS_7D" | "VAX_7D" | "DEWORM_7D" | "APPOINTMENTS_24H" | "LAPSED_60D" | "ALL_CLIENTS";
+  channel?: "WHATSAPP" | "EMAIL";
+  template?: string;
+  customMessage?: string;
+  recipientClientIds?: string[];
+};
+
+export type BroadcastResultDto = {
+  dispatchedCount: number;
+  cohort: string;
+  status: string;
 };
 
 export async function triggerReminders(): Promise<ReminderRunSummary> {
   return apiJson<ReminderRunSummary>("/api/v1/reminders/trigger", { method: "POST" });
+}
+
+export async function getReminderCohorts(): Promise<ReminderCohortsDto> {
+  return apiJson<ReminderCohortsDto>("/api/v1/reminders/cohorts");
+}
+
+export async function broadcastToCohort(body: BroadcastPayload): Promise<BroadcastResultDto> {
+  return apiJson<BroadcastResultDto>("/api/v1/reminders/broadcast", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 // ----------------------------------------------------
