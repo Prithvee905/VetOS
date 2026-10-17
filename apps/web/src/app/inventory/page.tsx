@@ -32,7 +32,8 @@ export default function InventoryPage() {
   });
   const isOwner = session.data?.roles.some((r) => r.toUpperCase() === "OWNER") ?? false;
   const isDoctor = (session.data?.roles.some((r) => r.toUpperCase() === "DOCTOR") ?? false) && !isOwner;
-  const canViewFinancials = isOwner;
+  const [viewMode, setViewMode] = useState<"FINANCIAL" | "OPERATIONAL">("FINANCIAL");
+  const canViewFinancials = isOwner && viewMode === "FINANCIAL";
   const [medicineSearch, setMedicineSearch] = useState("");
   const [lowStockFilter, setLowStockFilter] = useState(false);
   const [expiringFilter, setExpiringFilter] = useState(false);
@@ -271,48 +272,77 @@ export default function InventoryPage() {
               : "Track manufacturer companies, distributors, purchase costs, valuations, and stock margins"}
           </p>
         </div>
-        {canViewFinancials ? (
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setShowQuickVendorModal(true)}
-              className="flex items-center gap-1.5"
-            >
-              <Truck className="h-3.5 w-3.5 text-teal-700" />
-              + New Distributor
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setShowProductModal(true)}
-            >
-              + Add Product / Medicine
-            </Button>
-            <Button
-              type="button"
-              className="bg-teal-800 text-white hover:bg-teal-900"
-              size="sm"
-              onClick={() => {
-                if (defaultBranchId && !batchBranchId) {
-                  setBatchBranchId(defaultBranchId);
-                }
-                setShowBatchModal(true);
-              }}
-            >
-              + New Stock Batch
-            </Button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-800 border border-teal-200">
-              <span className="h-2 w-2 rounded-full bg-teal-600 animate-pulse" />
-              Live Clinic Pharmacy
-            </span>
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          {isOwner && (
+            <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setViewMode("FINANCIAL")}
+                className={`rounded px-2.5 py-1 font-bold transition ${
+                  viewMode === "FINANCIAL"
+                    ? "bg-teal-800 text-white shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                👑 Owner Financials
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("OPERATIONAL")}
+                className={`rounded px-2.5 py-1 font-bold transition ${
+                  viewMode === "OPERATIONAL"
+                    ? "bg-teal-800 text-white shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                👁️ Preview Receptionist View
+              </button>
+            </div>
+          )}
+
+          {canViewFinancials ? (
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowQuickVendorModal(true)}
+                className="flex items-center gap-1.5"
+              >
+                <Truck className="h-3.5 w-3.5 text-teal-700" />
+                + New Distributor
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowProductModal(true)}
+              >
+                + Add Product / Medicine
+              </Button>
+              <Button
+                type="button"
+                className="bg-teal-800 text-white hover:bg-teal-900"
+                size="sm"
+                onClick={() => {
+                  if (defaultBranchId && !batchBranchId) {
+                    setBatchBranchId(defaultBranchId);
+                  }
+                  setShowBatchModal(true);
+                }}
+              >
+                + New Stock Batch
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-800 border border-teal-200">
+                <span className="h-2 w-2 rounded-full bg-teal-600 animate-pulse" />
+                Live Clinic Stock Availability
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* KPI Cards */}

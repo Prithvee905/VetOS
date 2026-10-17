@@ -107,23 +107,52 @@ export default function ClinicSettingsPage() {
             <p className="text-xs text-teal-800 mt-0.5">
               Maximum discount percentage that receptionists and counter staff are allowed to grant for standard clients. Staff cannot exceed this limit without owner override.
             </p>
-            <div className="flex items-center gap-2 pt-1.5">
-              <input
-                id="maxDiscount"
-                type="number"
-                min="0"
-                max="100"
-                step="1"
-                className="w-24 rounded-md border border-teal-300 bg-white px-3 py-1.5 text-sm font-bold text-teal-950 shadow-xs focus:outline-none focus:ring-1 focus:ring-teal-600"
-                value={values.maxStaffDiscountPercent ?? 20}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    maxStaffDiscountPercent: parseFloat(event.target.value) || 0,
-                  }))
-                }
-              />
-              <span className="text-sm font-bold text-teal-900">% Max Allowed</span>
+            <div className="flex flex-col gap-2 pt-1.5">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  id="toggleStaffDiscounts"
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-teal-300 text-teal-700 focus:ring-teal-500 cursor-pointer"
+                  checked={(values.maxStaffDiscountPercent ?? 20) > 0}
+                  onChange={(e) =>
+                    setForm((current) => ({
+                      ...current,
+                      maxStaffDiscountPercent: e.target.checked ? 20 : 0,
+                    }))
+                  }
+                />
+                <span className="text-xs font-bold text-teal-950">
+                  Enable Receptionist / Staff Counter Discounts
+                </span>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                  (values.maxStaffDiscountPercent ?? 20) > 0
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-rose-100 text-rose-800"
+                }`}>
+                  {(values.maxStaffDiscountPercent ?? 20) > 0 ? "ENABLED" : "DISABLED"}
+                </span>
+              </label>
+
+              {(values.maxStaffDiscountPercent ?? 20) > 0 && (
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    id="maxDiscount"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    className="w-24 rounded-md border border-teal-300 bg-white px-3 py-1.5 text-sm font-bold text-teal-950 shadow-xs focus:outline-none focus:ring-1 focus:ring-teal-600"
+                    value={values.maxStaffDiscountPercent ?? 20}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        maxStaffDiscountPercent: parseFloat(event.target.value) || 0,
+                      }))
+                    }
+                  />
+                  <span className="text-sm font-bold text-teal-900">% Max Allowed for Counter Staff</span>
+                </div>
+              )}
             </div>
           </div>
 

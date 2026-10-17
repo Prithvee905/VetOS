@@ -28,6 +28,8 @@ import {
   getClinicProfile,
   sendWhatsApp,
   sendEmail,
+  listVaccinations,
+  recordVaccination,
   type SessionUser,
   type ClinicProfile,
   type AppointmentItem,
@@ -37,6 +39,7 @@ import {
   type InvoiceRow,
   type PrescriptionRow,
   type QueueEntry,
+  type VaccinationRecord,
 } from "@/lib/api";
 import { RecordSoapModal } from "@/components/record-soap-modal";
 import {
@@ -54,6 +57,7 @@ import {
   Mail,
   Send,
   ExternalLink,
+  Syringe,
 } from "lucide-react";
 import { PrintableDocumentModal } from "@/components/printable-document-modal";
 
@@ -355,6 +359,45 @@ export default function ClinicOperationsStation() {
   const [lastPrescription, setLastPrescription] = useState<PrescriptionRow | null>(null);
 
   // ----------------------------------------------------
+  // Active Consultation: Immunization & Preventative State
+  // ----------------------------------------------------
+  const [showVaxModal, setShowVaxModal] = useState(false);
+  const [vaxName, setVaxName] = useState("Rabies (Anti-Rabies / ARV)");
+  const [vaxAdminDate, setVaxAdminDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [vaxNextDue, setVaxNextDue] = useState(() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() + 1);
+    return d.toISOString().split("T")[0];
+  });
+  const [vaxBatch, setVaxBatch] = useState("VAC-2026-01");
+  const [vaxNotes, setVaxNotes] = useState("Administered SQ right hind limb. Normal post-vaccination observation.");
+  const [vaxAddToBasket, setVaxAddToBasket] = useState(true);
+  const [vaxFee, setVaxFee] = useState("450");
+
+  function handleSelectVaxType(name: string) {
+    setVaxName(name);
+    const d = new Date();
+    if (name.toLowerCase().includes("deworm")) {
+      d.setMonth(d.getMonth() + 3);
+      setVaxFee("150");
+      setVaxNotes("Broad spectrum anthelmintic administered orally.");
+    } else if (name.toLowerCase().includes("dhpp") || name.toLowerCase().includes("tricat") || name.toLowerCase().includes("9-in-1")) {
+      d.setFullYear(d.getFullYear() + 1);
+      setVaxFee("650");
+      setVaxNotes("Administered SQ scruff/hind limb. Health check normal.");
+    } else if (name.toLowerCase().includes("cough") || name.toLowerCase().includes("bordetella") || name.toLowerCase().includes("kc")) {
+      d.setFullYear(d.getFullYear() + 1);
+      setVaxFee("500");
+      setVaxNotes("Administered intranasal / oral. No respiratory abnormalities.");
+    } else {
+      d.setFullYear(d.getFullYear() + 1);
+      setVaxFee("450");
+      setVaxNotes("Administered SQ right hind limb. Normal post-vaccine observation.");
+    }
+    setVaxNextDue(d.toISOString().split("T")[0]);
+  }
+
+  // ----------------------------------------------------
   // Unified Basket / POS State
   // ----------------------------------------------------
   const [basketClientId, setBasketClientId] = useState("");
@@ -374,9 +417,19 @@ export default function ClinicOperationsStation() {
 
   useEffect(() => {
     if (clinicProfile.data?.allowMedicineDiscount !== undefined) {
-      setApplyDiscountToMedicines(Boolean(clinicProfile.data.allowMedicineDiscount));
+      if (!isOwner && !clinicProfile.data.allowMedicineDiscount) {
+        setApplyDiscountToMedicines(false);
+      } else if (isOwner) {
+        setApplyDiscountToMedicines(Boolean(clinicProfile.data.allowMedicineDiscount));
+      }
     }
-  }, [clinicProfile.data?.allowMedicineDiscount]);
+  }, [clinicProfile.data?.allowMedicineDiscount, isOwner]);
+
+  useEffect(() => {
+    if (!isOwner && maxStaffDiscountCap === 0 && discountPercent > 0) {
+      setDiscountPercent(0);
+    }
+  }, [isOwner, maxStaffDiscountCap, discountPercent]);
 
   useEffect(() => {
     try {
@@ -656,6 +709,206 @@ export default function ClinicOperationsStation() {
   });
 
   // ----------------------------------------------------
+  // Actions: Vaccination Records & Status
+  // ----------------------------------------------------
+  const patientVaccinations = useQuery<VaccinationRecord[]>({
+    queryKey: ["patient-vaccinations", activePatientId],
+    queryFn: () => listVaccinations(activePatientId),
+    enabled: Boolean(activePatientId),
+    refetchInterval: 10_000,
+  });
+
+  const activePatient = useMemo(() => {
+    return patients.data?.find((p) => p.id === activePatientId) ?? null;
+  }, [patients.data, activePatientId]);
+
+  const isFeline = activePatient?.speciesCode?.toUpperCase() === "FELINE";
+
+  const coreVaccineList = useMemo(() => {
+    if (isFeline) {
+      return [
+        {
+          key: "RABIES",
+          name: "Rabies (Anti-Rabies / ARV)",
+          defaultAdminName: "Rabies (Anti-Rabies / ARV)",
+          aliases: ["rabies", "arv", "defensor", "nobivac r"],
+        },
+        {
+          key: "TRICAT",
+          name: "Tricat Trio / FVRCP",
+          defaultAdminName: "Tricat Trio (FVRCP)",
+          aliases: ["tricat", "fvrcp", "felocell", "panleukopenia"],
+        },
+        {
+          key: "FELV",
+          name: "FeLV (Feline Leukemia)",
+          defaultAdminName: "FeLV (Feline Leukemia)",
+          aliases: ["felv", "leukemia"],
+        },
+        {
+          key: "DEWORM",
+          name: "Deworming / Parasite",
+          defaultAdminName: "Deworming (Feline)",
+          aliases: ["deworm", "worm", "drontal", "fenbendazole"],
+        },
+      ];
+    }
+    return [
+      {
+        key: "RABIES",
+        name: "Rabies (Anti-Rabies / ARV)",
+        defaultAdminName: "Rabies (Anti-Rabies / ARV)",
+        aliases: ["rabies", "arv", "defensor", "nobivac r"],
+      },
+      {
+        key: "DHPPIL",
+        name: "DHPPiL (9-in-1 / 7-in-1)",
+        defaultAdminName: "DHPPiL (9-in-1 Core)",
+        aliases: ["dhppil", "dhpp", "dhp", "mega-vac", "canigen", "vanguard", "9-in-1", "7-in-1", "parvo"],
+      },
+      {
+        key: "KC",
+        name: "Kennel Cough (KC / Bb)",
+        defaultAdminName: "Kennel Cough (KC / Bordetella)",
+        aliases: ["kennel", "cough", "bordetella", "kc", "bronchicine"],
+      },
+      {
+        key: "DEWORM",
+        name: "Deworming / Parasite",
+        defaultAdminName: "Deworming (Broad Spectrum)",
+        aliases: ["deworm", "worm", "drontal", "fenbendazole", "praziquantel"],
+      },
+    ];
+  }, [isFeline]);
+
+  const coreVaccineStatusList = useMemo(() => {
+    const records = patientVaccinations.data ?? [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return coreVaccineList.map((vaxDef) => {
+      const matchingDoses = records.filter((r) => {
+        const name = (r.vaccineName || "").toLowerCase();
+        return vaxDef.aliases.some((a) => name.includes(a));
+      });
+
+      matchingDoses.sort((a, b) => new Date(b.administeredOn).getTime() - new Date(a.administeredOn).getTime());
+      const latest = matchingDoses[0];
+
+      if (!latest) {
+        return {
+          key: vaxDef.key,
+          name: vaxDef.name,
+          defaultAdminName: vaxDef.defaultAdminName,
+          status: "NOT_RECORDED" as const,
+          statusBadge: "NOT RECORDED",
+          description: "No vaccination on file",
+          lastDoseDate: null,
+          nextDueDate: null,
+        };
+      }
+
+      if (latest.nextDueOn) {
+        const dueDate = new Date(latest.nextDueOn);
+        dueDate.setHours(0, 0, 0, 0);
+        const diffMs = dueDate.getTime() - today.getTime();
+        const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+        if (diffDays < 0) {
+          return {
+            key: vaxDef.key,
+            name: vaxDef.name,
+            defaultAdminName: latest.vaccineName,
+            status: "OVERDUE" as const,
+            statusBadge: "OVERDUE",
+            description: `Booster overdue by ${Math.abs(diffDays)}d (${latest.nextDueOn})`,
+            lastDoseDate: latest.administeredOn,
+            nextDueDate: latest.nextDueOn,
+          };
+        } else if (diffDays <= 30) {
+          return {
+            key: vaxDef.key,
+            name: vaxDef.name,
+            defaultAdminName: latest.vaccineName,
+            status: "DUE_SOON" as const,
+            statusBadge: `DUE IN ${diffDays}D`,
+            description: `Booster due ${latest.nextDueOn}`,
+            lastDoseDate: latest.administeredOn,
+            nextDueDate: latest.nextDueOn,
+          };
+        } else {
+          return {
+            key: vaxDef.key,
+            name: vaxDef.name,
+            defaultAdminName: latest.vaccineName,
+            status: "UP_TO_DATE" as const,
+            statusBadge: "UP TO DATE",
+            description: `Current • Next booster ${latest.nextDueOn}`,
+            lastDoseDate: latest.administeredOn,
+            nextDueDate: latest.nextDueOn,
+          };
+        }
+      }
+
+      return {
+        key: vaxDef.key,
+        name: vaxDef.name,
+        defaultAdminName: latest.vaccineName,
+        status: "UP_TO_DATE" as const,
+        statusBadge: "RECORDED",
+        description: `Given on ${latest.administeredOn}`,
+        lastDoseDate: latest.administeredOn,
+        nextDueDate: null,
+      };
+    });
+  }, [coreVaccineList, patientVaccinations.data]);
+
+  const recordVaccineMutation = useMutation({
+    mutationFn: async () => {
+      if (!activePatientId) throw new Error("No active patient selected for consultation");
+      if (!vaxName.trim()) throw new Error("Please enter or select vaccine name");
+
+      const res = await recordVaccination({
+        patientId: activePatientId,
+        vaccineName: vaxName.trim(),
+        administeredOn: vaxAdminDate,
+        nextDueOn: vaxNextDue || undefined,
+        batchNumber: vaxBatch.trim() || undefined,
+        notes: vaxNotes.trim() || undefined,
+      });
+
+      if (vaxAddToBasket) {
+        const fee = parseFloat(vaxFee) || 450;
+        setBasketLines((prev) => [
+          ...prev,
+          {
+            id: `vax-${Date.now()}`,
+            sourceType: "SERVICE",
+            description: `Vaccination: ${vaxName.trim()} ${vaxBatch.trim() ? `(Batch: ${vaxBatch.trim()})` : ""}`,
+            quantity: 1,
+            unitPrice: fee,
+            taxRate: 0,
+          },
+        ]);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("vetos_active_basket_patient_id", activePatientId);
+        }
+      }
+
+      return res;
+    },
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ["patient-vaccinations", activePatientId] });
+      queryClient.invalidateQueries({ queryKey: ["patients"] });
+      setShowVaxModal(false);
+      notifySuccess(
+        `💉 ${res.vaccineName} recorded for ${activePatient?.name || "patient"}! Added to immunization card${vaxAddToBasket ? " & POS billing basket (₹" + vaxFee + ")" : ""}.`
+      );
+    },
+    onError: notifyError,
+  });
+
+  // ----------------------------------------------------
   // Actions: Unified Basket / Billing
   // ----------------------------------------------------
   const servicesSubtotal = useMemo(() => {
@@ -678,12 +931,18 @@ export default function ClinicOperationsStation() {
 
   const effectiveStaffCap = useMemo(() => {
     if (isOwner) return 100;
+    if (maxStaffDiscountCap === 0) return 0;
     if (currentCategory === "LOYAL") return loyalDiscountCap;
     if (currentCategory === "NGO") return Math.max(ngoConsultationDiscountPercent, maxStaffDiscountCap);
     return maxStaffDiscountCap;
-  }, [isOwner, currentCategory, loyalDiscountCap, ngoConsultationDiscountPercent, maxStaffDiscountCap]);
+  }, [isOwner, maxStaffDiscountCap, currentCategory, loyalDiscountCap, ngoConsultationDiscountPercent]);
 
   function handleDiscountChange(valStr: string) {
+    if (!isOwner && maxStaffDiscountCap === 0) {
+      setDiscountError("Counter discounts are currently disabled for reception staff by the clinic owner.");
+      setDiscountPercent(0);
+      return;
+    }
     const parsed = Math.max(0, Math.min(100, parseFloat(valStr) || 0));
     if (!isOwner && parsed > effectiveStaffCap) {
       setDiscountError(
@@ -778,9 +1037,21 @@ export default function ClinicOperationsStation() {
         throw new Error("Cannot issue invoice for an empty basket.");
       }
 
+      if (!isOwner && maxStaffDiscountCap === 0 && discountPercent > 0) {
+        throw new Error(
+          "Counter discounts are currently disabled for reception staff by the clinic owner."
+        );
+      }
+
       if (!isOwner && discountPercent > effectiveStaffCap) {
         throw new Error(
           `Discount exceeds staff cap of ${effectiveStaffCap}%. Only clinic OWNER can authorize higher discounts.`
+        );
+      }
+
+      if (!isOwner && !defaultAllowMedicineDiscount && applyDiscountToMedicines) {
+        throw new Error(
+          "Discounts on medicines & prescriptions are restricted by the clinic owner. Margin protection is active."
         );
       }
 
@@ -824,6 +1095,53 @@ export default function ClinicOperationsStation() {
       notifySuccess(`Invoice #${inv.invoiceNumber} created. Total due: ₹${inv.total}`);
     },
     onError: notifyError,
+  });
+
+  const toggleMedicineDiscountPermission = useMutation({
+    mutationFn: async (allow: boolean) => {
+      if (!clinicProfile.data) throw new Error("Clinic profile not loaded");
+      return apiJson<ClinicProfile>("/api/v1/clinic", {
+        method: "PATCH",
+        body: JSON.stringify({
+          version: clinicProfile.data.version,
+          allowMedicineDiscount: allow,
+        }),
+      });
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["clinic-profile"], updated);
+      queryClient.invalidateQueries({ queryKey: ["clinic-profile"] });
+      setApplyDiscountToMedicines(Boolean(updated?.allowMedicineDiscount));
+      notifySuccess(
+        updated?.allowMedicineDiscount
+          ? "✅ Receptionist permission: Medicine discounts are now ALLOWED."
+          : "🔒 Receptionist permission: Medicine discounts are now RESTRICTED (margins protected)."
+      );
+    },
+    onError: (err) => notifyError(err),
+  });
+
+  const toggleStaffDiscountPermission = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      if (!clinicProfile.data) throw new Error("Clinic profile not loaded");
+      return apiJson<ClinicProfile>("/api/v1/clinic", {
+        method: "PATCH",
+        body: JSON.stringify({
+          version: clinicProfile.data.version,
+          maxStaffDiscountPercent: enabled ? 20 : 0,
+        }),
+      });
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["clinic-profile"], updated);
+      queryClient.invalidateQueries({ queryKey: ["clinic-profile"] });
+      notifySuccess(
+        (updated?.maxStaffDiscountPercent ?? 0) > 0
+          ? `✅ Receptionist permission: Staff discounts are now ALLOWED (up to ${updated?.maxStaffDiscountPercent}%).`
+          : "🔒 Receptionist permission: Staff discounts are now DISABLED (0% locked for staff)."
+      );
+    },
+    onError: (err) => notifyError(err),
   });
 
   const payUnifiedInvoiceMutation = useMutation({
@@ -1809,6 +2127,114 @@ export default function ClinicOperationsStation() {
             </div>
           )}
 
+          {/* Patient Immunization & Preventative Health Card */}
+          {activePatientId && (
+            <div className="rounded-xl border border-teal-200 bg-white p-4 shadow-sm space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="rounded-lg bg-teal-50 p-2 text-teal-800 border border-teal-200">
+                    <Syringe className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-bold text-slate-900">
+                        Patient Immunization & Preventative Card
+                      </h4>
+                      <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-bold text-teal-900 uppercase">
+                        {activePatient?.name ?? "Patient"} • {activePatient?.speciesCode ?? "Canine"}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Live vaccine status, scheduled PRM booster reminders, and direct visit administration.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs"
+                    onClick={() => {
+                      handleSelectVaxType(isFeline ? "Tricat Trio (FVRCP)" : "Rabies (Anti-Rabies / ARV)");
+                      setShowVaxModal(true);
+                    }}
+                  >
+                    <Syringe className="h-3.5 w-3.5" />
+                    + Administer Vaccine in this Visit
+                  </Button>
+                </div>
+              </div>
+
+              {/* Vaccine Status Badges Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                {coreVaccineStatusList.map((vax) => {
+                  return (
+                    <div
+                      key={vax.key}
+                      onClick={() => {
+                        handleSelectVaxType(vax.defaultAdminName);
+                        setShowVaxModal(true);
+                      }}
+                      className={`group cursor-pointer rounded-lg border p-3 transition hover:shadow-sm ${
+                        vax.status === "UP_TO_DATE"
+                          ? "border-emerald-200 bg-emerald-50/50 hover:bg-emerald-50"
+                          : vax.status === "DUE_SOON"
+                          ? "border-amber-200 bg-amber-50/50 hover:bg-amber-50"
+                          : vax.status === "OVERDUE"
+                          ? "border-rose-200 bg-rose-50/50 hover:bg-rose-50"
+                          : "border-slate-200 bg-slate-50/70 hover:bg-slate-100"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-900">{vax.name}</span>
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-extrabold ${
+                            vax.status === "UP_TO_DATE"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : vax.status === "DUE_SOON"
+                              ? "bg-amber-100 text-amber-800"
+                              : vax.status === "OVERDUE"
+                              ? "bg-rose-100 text-rose-800"
+                              : "bg-slate-200 text-slate-600"
+                          }`}
+                        >
+                          {vax.statusBadge}
+                        </span>
+                      </div>
+                      <p className="text-[11px] font-medium text-slate-600 mt-1">
+                        {vax.description}
+                      </p>
+                      <div className="mt-2 flex items-center justify-between text-[10px]">
+                        <span className="text-slate-400 font-mono">
+                          {vax.lastDoseDate ? `Given: ${vax.lastDoseDate}` : "Never given"}
+                        </span>
+                        <span className="font-bold text-teal-800 group-hover:underline">
+                          + Log Dose →
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Recent Doses History Summary */}
+              {(patientVaccinations.data ?? []).length > 0 && (
+                <div className="border-t border-slate-100 pt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                  <span className="font-semibold text-slate-700">Recorded Doses on File ({patientVaccinations.data?.length}):</span>
+                  {(patientVaccinations.data ?? []).slice(0, 3).map((r) => (
+                    <span key={r.id} className="rounded bg-slate-100 px-2 py-0.5 font-medium text-slate-700 border border-slate-200">
+                      💉 {r.vaccineName} ({r.administeredOn}) {r.batchNumber ? `• Lot: ${r.batchNumber}` : ""}
+                    </span>
+                  ))}
+                  {(patientVaccinations.data ?? []).length > 3 && (
+                    <span className="text-slate-400">+{patientVaccinations.data!.length - 3} more</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* S: Subjective */}
             <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm flex flex-col gap-3">
@@ -2606,6 +3032,55 @@ export default function ClinicOperationsStation() {
 
                 {/* Counter Discount Controls */}
                 <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 space-y-3">
+                  {/* Owner Live Toggle Permission Bar */}
+                  {isOwner && (
+                    <div className="rounded-lg bg-teal-50/90 border border-teal-200 p-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center gap-1.5 font-bold text-teal-950">
+                        <span className="rounded bg-teal-800 text-white px-2 py-0.5 text-[10px] font-extrabold tracking-wide uppercase">
+                          👑 Owner Control
+                        </span>
+                        <span>Receptionist Access Permissions:</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-4">
+                        {/* Toggle 1: Allow Staff Discounts */}
+                        <label className="flex items-center gap-1.5 cursor-pointer font-semibold text-slate-800 hover:text-teal-950">
+                          <input
+                            id="toggle-owner-staff-discounts"
+                            type="checkbox"
+                            checked={maxStaffDiscountCap > 0}
+                            disabled={toggleStaffDiscountPermission.isPending}
+                            onChange={(e) => toggleStaffDiscountPermission.mutate(e.target.checked)}
+                            className="h-4 w-4 rounded border-teal-300 text-teal-700 focus:ring-teal-500 cursor-pointer"
+                          />
+                          <span>
+                            Allow Staff Discounts{" "}
+                            <span className={maxStaffDiscountCap > 0 ? "text-emerald-700 font-bold" : "text-rose-700 font-bold"}>
+                              ({maxStaffDiscountCap > 0 ? `${maxStaffDiscountCap}% Cap` : "Disabled"})
+                            </span>
+                          </span>
+                        </label>
+
+                        {/* Toggle 2: Allow Medicine Discounts */}
+                        <label className="flex items-center gap-1.5 cursor-pointer font-semibold text-slate-800 hover:text-teal-950">
+                          <input
+                            id="toggle-owner-medicine-discounts"
+                            type="checkbox"
+                            checked={defaultAllowMedicineDiscount}
+                            disabled={toggleMedicineDiscountPermission.isPending}
+                            onChange={(e) => toggleMedicineDiscountPermission.mutate(e.target.checked)}
+                            className="h-4 w-4 rounded border-teal-300 text-teal-700 focus:ring-teal-500 cursor-pointer"
+                          />
+                          <span>
+                            Allow Medicine Discounts{" "}
+                            <span className={defaultAllowMedicineDiscount ? "text-emerald-700 font-bold" : "text-rose-700 font-bold"}>
+                              ({defaultAllowMedicineDiscount ? "Enabled" : "Restricted"})
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-xs font-bold text-slate-800">Counter Discount:</span>
@@ -2615,15 +3090,24 @@ export default function ClinicOperationsStation() {
                           type="number"
                           min="0"
                           max={isOwner ? 100 : effectiveStaffCap}
+                          disabled={!isOwner && maxStaffDiscountCap === 0}
                           value={discountPercent}
                           onChange={(e) => handleDiscountChange(e.target.value)}
-                          className="w-16 rounded-md border border-slate-300 bg-white p-1 text-xs font-bold text-slate-800 text-center shadow-xs focus:ring-1 focus:ring-teal-600"
+                          className={`w-16 rounded-md border p-1 text-xs font-bold text-center shadow-xs focus:ring-1 focus:ring-teal-600 ${
+                            !isOwner && maxStaffDiscountCap === 0
+                              ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+                              : "bg-white text-slate-800 border-slate-300"
+                          }`}
                         />
                         <span className="ml-1 text-xs font-bold text-slate-500">%</span>
                       </div>
 
                       {/* Tier Badge / Policy Cap info */}
-                      {isOwner ? (
+                      {!isOwner && maxStaffDiscountCap === 0 ? (
+                        <span className="rounded bg-rose-50 border border-rose-200 text-rose-700 px-2 py-0.5 text-[10px] font-bold flex items-center gap-1">
+                          🔒 Discounts Disabled by Clinic Owner
+                        </span>
+                      ) : isOwner ? (
                         <span className="rounded bg-amber-100 text-amber-800 px-2 py-0.5 text-[10px] font-bold">
                           👑 Owner Override (Uncapped)
                         </span>
@@ -2650,139 +3134,158 @@ export default function ClinicOperationsStation() {
                   </div>
 
                   {/* Quick Presets for Customer Tiers */}
-                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                    <span className="text-[11px] font-semibold text-slate-500 mr-1">Quick Presets:</span>
-                    {currentCategory === "NGO" && (
-                      <button
-                        type="button"
-                        id="btn-apply-ngo-discount"
-                        onClick={() => {
-                          setDiscountPercent(ngoConsultationDiscountPercent);
-                          setDiscountError("");
-                        }}
-                        className={`text-[11px] font-bold px-2.5 py-1 rounded-md border transition-all ${
-                          discountPercent === ngoConsultationDiscountPercent
-                            ? "bg-emerald-600 text-white border-emerald-700 shadow-xs"
-                            : "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
-                        }`}
-                      >
-                        🐾 Apply NGO {ngoConsultationDiscountPercent}% Rescue Discount (Consultation)
-                      </button>
-                    )}
-                    {currentCategory === "LOYAL" && (
-                      <>
+                  {(isOwner || maxStaffDiscountCap > 0) && (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                      <span className="text-[11px] font-semibold text-slate-500 mr-1">Quick Presets:</span>
+                      {currentCategory === "NGO" && (
+                        <button
+                          type="button"
+                          id="btn-apply-ngo-discount"
+                          onClick={() => {
+                            setDiscountPercent(ngoConsultationDiscountPercent);
+                            setDiscountError("");
+                          }}
+                          className={`text-[11px] font-bold px-2.5 py-1 rounded-md border transition-all ${
+                            discountPercent === ngoConsultationDiscountPercent
+                              ? "bg-emerald-600 text-white border-emerald-700 shadow-xs"
+                              : "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
+                          }`}
+                        >
+                          🐾 Apply NGO {ngoConsultationDiscountPercent}% Rescue Discount (Consultation)
+                        </button>
+                      )}
+                      {currentCategory === "LOYAL" && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDiscountPercent(10);
+                              setDiscountError("");
+                            }}
+                            className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
+                              discountPercent === 10 ? "bg-amber-600 text-white" : "bg-white text-slate-700 border-slate-200"
+                            }`}
+                          >
+                            10%
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDiscountPercent(20);
+                              setDiscountError("");
+                            }}
+                            className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
+                              discountPercent === 20 ? "bg-amber-600 text-white" : "bg-white text-slate-700 border-slate-200"
+                            }`}
+                          >
+                            20%
+                          </button>
+                          <button
+                            type="button"
+                            id="btn-apply-loyal-max"
+                            onClick={() => {
+                              setDiscountPercent(loyalDiscountCap);
+                              setDiscountError("");
+                            }}
+                            className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
+                              discountPercent === loyalDiscountCap
+                                ? "bg-amber-600 text-white border-amber-700"
+                                : "bg-amber-50 text-amber-900 border-amber-300"
+                            }`}
+                          >
+                            ⭐ {loyalDiscountCap}% (Loyal Max)
+                          </button>
+                        </>
+                      )}
+                      {currentCategory === "STANDARD" && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDiscountPercent(5);
+                              setDiscountError("");
+                            }}
+                            className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
+                              discountPercent === 5 ? "bg-teal-700 text-white" : "bg-white text-slate-700 border-slate-200"
+                            }`}
+                          >
+                            5%
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDiscountPercent(10);
+                              setDiscountError("");
+                            }}
+                            className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
+                              discountPercent === 10 ? "bg-teal-700 text-white" : "bg-white text-slate-700 border-slate-200"
+                            }`}
+                          >
+                            10%
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDiscountPercent(maxStaffDiscountCap);
+                              setDiscountError("");
+                            }}
+                            className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
+                              discountPercent === maxStaffDiscountCap ? "bg-teal-700 text-white" : "bg-white text-slate-700 border-slate-200"
+                            }`}
+                          >
+                            {maxStaffDiscountCap}% (Max)
+                          </button>
+                        </>
+                      )}
+                      {discountPercent > 0 && (
                         <button
                           type="button"
                           onClick={() => {
-                            setDiscountPercent(10);
+                            setDiscountPercent(0);
                             setDiscountError("");
                           }}
-                          className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
-                            discountPercent === 10 ? "bg-amber-600 text-white" : "bg-white text-slate-700 border-slate-200"
-                          }`}
+                          className="text-[10px] text-slate-400 hover:text-slate-600 underline ml-1"
                         >
-                          10%
+                          Reset (0%)
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDiscountPercent(20);
-                            setDiscountError("");
-                          }}
-                          className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
-                            discountPercent === 20 ? "bg-amber-600 text-white" : "bg-white text-slate-700 border-slate-200"
-                          }`}
-                        >
-                          20%
-                        </button>
-                        <button
-                          type="button"
-                          id="btn-apply-loyal-max"
-                          onClick={() => {
-                            setDiscountPercent(loyalDiscountCap);
-                            setDiscountError("");
-                          }}
-                          className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
-                            discountPercent === loyalDiscountCap
-                              ? "bg-amber-600 text-white border-amber-700"
-                              : "bg-amber-50 text-amber-900 border-amber-300"
-                          }`}
-                        >
-                          ⭐ {loyalDiscountCap}% (Loyal Max)
-                        </button>
-                      </>
-                    )}
-                    {currentCategory === "STANDARD" && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDiscountPercent(5);
-                            setDiscountError("");
-                          }}
-                          className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
-                            discountPercent === 5 ? "bg-teal-700 text-white" : "bg-white text-slate-700 border-slate-200"
-                          }`}
-                        >
-                          5%
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDiscountPercent(10);
-                            setDiscountError("");
-                          }}
-                          className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
-                            discountPercent === 10 ? "bg-teal-700 text-white" : "bg-white text-slate-700 border-slate-200"
-                          }`}
-                        >
-                          10%
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDiscountPercent(maxStaffDiscountCap);
-                            setDiscountError("");
-                          }}
-                          className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
-                            discountPercent === maxStaffDiscountCap ? "bg-teal-700 text-white" : "bg-white text-slate-700 border-slate-200"
-                          }`}
-                        >
-                          {maxStaffDiscountCap}% (Max)
-                        </button>
-                      </>
-                    )}
-                    {discountPercent > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDiscountPercent(0);
-                          setDiscountError("");
-                        }}
-                        className="text-[10px] text-slate-400 hover:text-slate-600 underline ml-1"
-                      >
-                        Reset (0%)
-                      </button>
-                    )}
-                  </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Medicine Discount Toggle */}
                   <div className="border-t border-slate-200/80 pt-2.5">
-                    <label className="flex items-start gap-2.5 cursor-pointer">
+                    <label className={`flex items-start gap-2.5 ${!isOwner && !defaultAllowMedicineDiscount ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}>
                       <input
                         id="checkbox-apply-medicine-discount"
                         type="checkbox"
+                        disabled={!isOwner && !defaultAllowMedicineDiscount}
                         checked={applyDiscountToMedicines}
                         onChange={(e) => setApplyDiscountToMedicines(e.target.checked)}
-                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 disabled:cursor-not-allowed"
                       />
                       <div className="text-xs">
-                        <span className="font-bold text-slate-800">
-                          Apply discount to medicines & prescriptions also
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-800">
+                            Apply discount to medicines & prescriptions also
+                          </span>
+                          {!isOwner && !defaultAllowMedicineDiscount && (
+                            <span className="rounded bg-rose-50 border border-rose-200 text-rose-700 px-1.5 py-0.5 text-[10px] font-bold">
+                              🔒 Locked by Owner
+                            </span>
+                          )}
+                          {!isOwner && defaultAllowMedicineDiscount && (
+                            <span className="rounded bg-emerald-50 border border-emerald-200 text-emerald-700 px-1.5 py-0.5 text-[10px] font-bold">
+                              🔓 Owner Authorized
+                            </span>
+                          )}
+                        </div>
                         {applyDiscountToMedicines ? (
                           <p className="text-[11px] text-teal-800 mt-0.5 font-medium">
                             💊 Discount applies to full basket (services ₹{servicesSubtotal.toFixed(2)} + medicines ₹{medicinesSubtotal.toFixed(2)} = ₹{basketTotal.toFixed(2)})
+                          </p>
+                        ) : !isOwner && !defaultAllowMedicineDiscount ? (
+                          <p className="text-[11px] text-slate-500 mt-0.5 font-medium flex items-center gap-1">
+                            🛡️ <strong>Pharmacy Margins Protected:</strong> The clinic owner has locked medicine discounts for counter staff. (Owner toggle required to unlock).
                           </p>
                         ) : (
                           <p className="text-[11px] text-emerald-800 mt-0.5 font-medium flex items-center gap-1">
@@ -3212,6 +3715,159 @@ export default function ClinicOperationsStation() {
             paymentMethod: completedReceipt?.paymentMethod || paymentMethod,
           }}
         />
+      )}
+
+      {/* Modal: Administer / Log Vaccine */}
+      {showVaxModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="rounded-lg bg-teal-100 p-2 text-teal-800">
+                  <Syringe className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Administer / Record Vaccine
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Patient: <strong>{activePatient?.name || "Patient"}</strong> ({activePatient?.speciesCode || "Canine"})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowVaxModal(false)}
+                className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-slate-700">Select or Enter Vaccine *</label>
+                <div className="mt-1 flex flex-wrap gap-1.5 mb-2">
+                  {(isFeline
+                    ? ["Rabies (Anti-Rabies / ARV)", "Tricat Trio (FVRCP)", "FeLV (Feline Leukemia)", "Deworming (Feline)"]
+                    : ["Rabies (Anti-Rabies / ARV)", "DHPPiL (9-in-1 Core)", "Kennel Cough (KC / Bordetella)", "Deworming (Broad Spectrum)"]
+                  ).map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => handleSelectVaxType(preset)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold border transition ${
+                        vaxName === preset
+                          ? "bg-teal-700 text-white border-teal-800 shadow-xs"
+                          : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  value={vaxName}
+                  onChange={(e) => setVaxName(e.target.value)}
+                  placeholder="e.g. Rabies (Nobivac R), DHPPiL, etc."
+                  className="w-full rounded-md border border-slate-300 p-2 text-xs font-semibold text-slate-800 focus:border-teal-600 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700">Administered On (Date) *</label>
+                  <input
+                    type="date"
+                    value={vaxAdminDate}
+                    onChange={(e) => setVaxAdminDate(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-300 p-2 text-xs font-semibold"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700">Next Booster Due On</label>
+                  <input
+                    type="date"
+                    value={vaxNextDue}
+                    onChange={(e) => setVaxNextDue(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-300 p-2 text-xs font-semibold"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700">Batch / Lot Number</label>
+                  <input
+                    type="text"
+                    value={vaxBatch}
+                    onChange={(e) => setVaxBatch(e.target.value)}
+                    placeholder="e.g. RB-2026-X1"
+                    className="mt-1 w-full rounded-md border border-slate-300 p-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700">Fee to Bill Client (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="10"
+                    value={vaxFee}
+                    onChange={(e) => setVaxFee(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-300 p-2 text-xs font-bold text-teal-900"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700">Clinical Route & Notes</label>
+                <input
+                  type="text"
+                  value={vaxNotes}
+                  onChange={(e) => setVaxNotes(e.target.value)}
+                  placeholder="e.g. Subcutaneous right hindquarter. No adverse reaction."
+                  className="mt-1 w-full rounded-md border border-slate-300 p-2 text-xs"
+                />
+              </div>
+
+              <div className="rounded-lg bg-teal-50 border border-teal-200 p-3">
+                <label className="flex items-center gap-2 cursor-pointer font-bold text-teal-950">
+                  <input
+                    type="checkbox"
+                    checked={vaxAddToBasket}
+                    onChange={(e) => setVaxAddToBasket(e.target.checked)}
+                    className="h-4 w-4 rounded border-teal-300 text-teal-700 focus:ring-teal-500"
+                  />
+                  <span>Automatically add ₹{vaxFee || "0"} Vaccine Charge to Invoice Basket</span>
+                </label>
+                <p className="text-[11px] text-teal-800 ml-6 mt-0.5">
+                  Sends the vaccine fee directly to POS billing checkout so the counter receptionist can collect payment without re-typing.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t pt-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowVaxModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="bg-teal-700 hover:bg-teal-800 text-white font-bold"
+                disabled={!vaxName.trim() || recordVaccineMutation.isPending}
+                onClick={() => recordVaccineMutation.mutate()}
+              >
+                {recordVaccineMutation.isPending ? "Recording…" : "Save to Immunization Card ✓"}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
