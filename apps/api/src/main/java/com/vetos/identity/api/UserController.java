@@ -47,6 +47,14 @@ public class UserController {
 		return userAdminService.list(page, size);
 	}
 
+	@GetMapping("/practitioners")
+	public UserPage listPractitioners(
+			@AuthenticationPrincipal VetosAuthentication authentication,
+			@RequestParam(defaultValue = "0") int page,
+			@RequestParam(defaultValue = "100") int size) {
+		return userAdminService.list(page, size);
+	}
+
 	@PostMapping
 	@ResponseStatus(HttpStatus.CREATED)
 	public UserResponse create(

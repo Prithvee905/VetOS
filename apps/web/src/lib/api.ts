@@ -262,7 +262,11 @@ export async function createPatient(body: Record<string, unknown>): Promise<Pati
 }
 
 export async function listUsers(): Promise<{ items: UserRowBrief[] }> {
-  return apiJson<{ items: UserRowBrief[] }>("/api/v1/users");
+  try {
+    return await apiJson<{ items: UserRowBrief[] }>("/api/v1/users/practitioners");
+  } catch {
+    return await apiJson<{ items: UserRowBrief[] }>("/api/v1/users");
+  }
 }
 
 export async function createAppointment(body: Record<string, unknown>): Promise<AppointmentRow> {

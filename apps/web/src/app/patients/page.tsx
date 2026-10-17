@@ -1044,7 +1044,7 @@ export default function PatientsPage() {
                 >
                   <option value="">Select attending doctor…</option>
                   {(usersQuery.data?.items ?? [])
-                    .filter((u) => u.roles.includes("DOCTOR") || u.roles.includes("OWNER"))
+                    .filter((u) => u.roles.some((r) => r.toUpperCase() === "DOCTOR" || r.toUpperCase() === "OWNER"))
                     .map((d) => {
                       const isBusy = (queueQuery.data ?? []).some((q) => q.doctorUserId === d.id && q.status === "IN_CONSULTATION");
                       const waitingCount = (queueQuery.data ?? []).filter((q) => q.doctorUserId === d.id && q.status === "WAITING").length;
