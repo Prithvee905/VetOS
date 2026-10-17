@@ -511,11 +511,12 @@ export default function ProcurementPage() {
                   <div>
                     <label className="text-xs font-semibold text-slate-700">Phone / Mobile</label>
                     <input
-                      type="text"
+                      type="tel"
+                      inputMode="tel"
                       value={vendorPhone}
-                      onChange={(e) => setVendorPhone(e.target.value)}
+                      onChange={(e) => setVendorPhone(e.target.value.replace(/[^0-9+]/g, "").slice(0, 15))}
                       className="mt-1 w-full rounded border border-slate-300 p-2 text-sm bg-white focus:border-teal-600 focus:outline-none"
-                      placeholder="+91 98765 43210"
+                      placeholder="e.g. 9876543210"
                     />
                   </div>
                   <div>

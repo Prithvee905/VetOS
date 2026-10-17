@@ -731,11 +731,12 @@ export default function PatientsPage() {
                 <label htmlFor="owner-modal-phone" className="text-xs font-semibold text-slate-700">Phone</label>
                 <input
                   id="owner-modal-phone"
-                  type="text"
+                  type="tel"
+                  inputMode="numeric"
                   value={ownerPhone}
-                  onChange={(e) => setOwnerPhone(e.target.value)}
+                  onChange={(e) => setOwnerPhone(e.target.value.replace(/[^0-9+]/g, "").slice(0, 15))}
                   className="mt-1 w-full rounded border border-slate-300 p-2 text-sm"
-                  placeholder="+1 555-0199"
+                  placeholder="e.g. 9948578774"
                 />
               </div>
               <div>

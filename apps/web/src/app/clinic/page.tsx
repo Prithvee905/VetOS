@@ -2995,11 +2995,12 @@ export default function ClinicOperationsStation() {
               <label className="text-xs font-semibold text-slate-600">Phone Number *</label>
               <input
                 id="reg-client-phone"
-                type="text"
+                type="tel"
+                inputMode="numeric"
                 placeholder="e.g. 9876543210"
                 className="mt-1 w-full rounded-md border border-slate-300 p-2.5 text-sm"
                 value={regClientPhone}
-                onChange={(e) => setRegClientPhone(e.target.value)}
+                onChange={(e) => setRegClientPhone(e.target.value.replace(/[^0-9+]/g, "").slice(0, 15))}
               />
             </div>
             <div>

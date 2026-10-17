@@ -122,11 +122,12 @@ export default function LeadsCrmPage() {
           <div>
             <label className="text-xs font-semibold text-slate-600">Phone Number</label>
             <input
-              type="text"
+              type="tel"
+              inputMode="numeric"
               placeholder="e.g. +91 98765 43210"
               className="mt-1 w-full rounded-md border border-slate-300 p-2 text-sm"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => setPhone(e.target.value.replace(/[^0-9+]/g, "").slice(0, 15))}
             />
           </div>
 
