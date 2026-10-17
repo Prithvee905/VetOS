@@ -212,15 +212,10 @@ export default function ClinicOperationsStation() {
   }, [allApptItems, users.data, session.data]);
   const displayedApptItems = (isDoctor && apptDoctorScope === "MY") ? myApptItems : allApptItems;
 
-  const defaultDoctors = [
-    { id: "01a10a6a-31f7-7041-b2d0-05087cb15cf2", displayName: "Dr. Robert Smith", roles: ["DOCTOR"] },
-    { id: "01a10a6c-e6cd-750f-9105-158106ea6c80", displayName: "Dr. Amanda Co-Owner", roles: ["OWNER"] },
-    { id: "01a0f8d9-149c-7420-b10b-8dbe914fe1d4", displayName: "Clinic Owner", roles: ["OWNER"] },
-  ];
-
   const doctors = useMemo(() => {
-    const list = (users.data?.items ?? []).filter((u) => u.roles.includes("DOCTOR") || u.roles.includes("OWNER"));
-    return list.length > 0 ? list : defaultDoctors;
+    return (users.data?.items ?? []).filter((u) =>
+      u.roles.some((r) => r.toUpperCase() === "DOCTOR" || r.toUpperCase() === "OWNER")
+    );
   }, [users.data]);
 
   const doctorStats = useMemo(() => {
@@ -1207,8 +1202,16 @@ export default function ClinicOperationsStation() {
             </div>
 
             {/* Doctor Status Cards Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
-              {doctorStats.map((d) => {
+            {doctorStats.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-white p-6 text-center">
+                <p className="text-xs font-semibold text-slate-700">No attending doctors registered yet</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Doctors registered with role DOCTOR or OWNER in your clinic will automatically appear here with their live status.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                {doctorStats.map((d) => {
                 const isFree = d.isFree;
                 return (
                   <div
@@ -1305,6 +1308,7 @@ export default function ClinicOperationsStation() {
                 );
               })}
             </div>
+            )}
           </div>
 
           {/* Doctor Scope Toggle for Live Queue */}

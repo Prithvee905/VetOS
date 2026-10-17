@@ -30,8 +30,9 @@ export default function InventoryPage() {
     queryKey: ["session"],
     queryFn: currentUser,
   });
-  const isOwner = session.data?.roles.includes("OWNER") ?? false;
-  const isDoctor = (session.data?.roles.includes("DOCTOR") ?? false) && !isOwner;
+  const isOwner = session.data?.roles.some((r) => r.toUpperCase() === "OWNER") ?? false;
+  const isDoctor = (session.data?.roles.some((r) => r.toUpperCase() === "DOCTOR") ?? false) && !isOwner;
+  const canViewFinancials = isOwner;
   const [medicineSearch, setMedicineSearch] = useState("");
   const [lowStockFilter, setLowStockFilter] = useState(false);
   const [expiringFilter, setExpiringFilter] = useState(false);
@@ -262,15 +263,15 @@ export default function InventoryPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900">
-            {isDoctor ? "Clinic Medicines & Formulary" : "Inventory & Medicines Master"}
+            {!canViewFinancials ? "Clinic Medicines & Stock Availability" : "Inventory & Medicines Master"}
           </h2>
           <p className="text-xs text-slate-500">
-            {isDoctor
-              ? "Browse medications available in the clinic hospital, live stock availability, formulation strengths, and expiry dates before prescribing."
+            {!canViewFinancials
+              ? "Browse medications available in clinic stock, check quantities on hand, selling MRP prices, and expiry dates."
               : "Track manufacturer companies, distributors, purchase costs, valuations, and stock margins"}
           </p>
         </div>
-        {!isDoctor ? (
+        {canViewFinancials ? (
           <div className="flex gap-2">
             <Button
               type="button"
@@ -315,7 +316,7 @@ export default function InventoryPage() {
       </div>
 
       {/* KPI Cards */}
-      {isDoctor ? (
+      {!canViewFinancials ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex items-center justify-between">
             <div>
@@ -426,7 +427,7 @@ export default function InventoryPage() {
               : "border-transparent text-slate-500 hover:text-slate-900"
           }`}
         >
-          {isDoctor ? `Available Hospital Stock (${filteredBatches.length})` : `Stock Batches (${batchesQuery.data?.length ?? 0})`}
+          {!canViewFinancials ? `Available Hospital Stock (${filteredBatches.length})` : `Stock Batches (${batchesQuery.data?.length ?? 0})`}
         </button>
         <button
           type="button"
@@ -437,7 +438,7 @@ export default function InventoryPage() {
               : "border-transparent text-slate-500 hover:text-slate-900"
           }`}
         >
-          {isDoctor ? `Medication Formulary Directory (${filteredProducts.length})` : `Catalog / Product Directory (${productsQuery.data?.length ?? 0})`}
+          {!canViewFinancials ? `Medication Formulary Directory (${filteredProducts.length})` : `Catalog / Product Directory (${productsQuery.data?.length ?? 0})`}
         </button>
       </div>
 
@@ -450,7 +451,7 @@ export default function InventoryPage() {
               <input
                 id="search-medicines-input"
                 type="text"
-                placeholder={isDoctor ? "Search available medicines by name, brand, or SKU…" : "Search stock batches…"}
+                placeholder={!canViewFinancials ? "Search available medicines by name, brand, or SKU…" : "Search stock batches…"}
                 value={medicineSearch}
                 onChange={(e) => setMedicineSearch(e.target.value)}
                 className="w-full rounded-lg border border-slate-300 bg-white pl-8 pr-8 py-1.5 text-xs text-slate-800 placeholder-slate-400 shadow-2xs focus:border-teal-600 focus:outline-none"
@@ -492,7 +493,7 @@ export default function InventoryPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="border-b border-slate-200 bg-slate-50 font-semibold uppercase text-slate-600">
-                  {isDoctor ? (
+                  {!canViewFinancials ? (
                     <tr>
                       <th className="p-3">Medicine Name</th>
                       <th className="p-3">SKU / Code</th>
@@ -521,11 +522,11 @@ export default function InventoryPage() {
                 <tbody className="divide-y divide-slate-100">
                   {batchesQuery.isLoading ? (
                     <tr>
-                      <td colSpan={isDoctor ? 7 : 11} className="p-4 text-center text-slate-400">Loading medicines…</td>
+                      <td colSpan={!canViewFinancials ? 7 : 11} className="p-4 text-center text-slate-400">Loading medicines…</td>
                     </tr>
                   ) : filteredBatches.length === 0 ? (
                     <tr>
-                      <td colSpan={isDoctor ? 7 : 11} className="p-6 text-center text-slate-400">
+                      <td colSpan={!canViewFinancials ? 7 : 11} className="p-6 text-center text-slate-400">
                         {medicineSearch
                           ? `No medicines matching "${medicineSearch}"`
                           : "No batches found matching filter criteria."}
@@ -540,7 +541,7 @@ export default function InventoryPage() {
                       const profitPerUnit = sellPrice - buyPrice;
                       const marginPct = sellPrice > 0 ? ((profitPerUnit / sellPrice) * 100).toFixed(0) : "0";
 
-                      if (isDoctor) {
+                      if (!canViewFinancials) {
                         return (
                           <tr key={b.id} className="hover:bg-slate-50 transition">
                             <td className="p-3">
@@ -696,7 +697,7 @@ export default function InventoryPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="border-b border-slate-200 bg-slate-50 font-semibold uppercase text-slate-600">
-                  {isDoctor ? (
+                  {!canViewFinancials ? (
                     <tr>
                       <th className="p-3">SKU / Code</th>
                       <th className="p-3">Medicine Name</th>
@@ -722,11 +723,11 @@ export default function InventoryPage() {
                 <tbody className="divide-y divide-slate-100">
                   {productsQuery.isLoading ? (
                     <tr>
-                      <td colSpan={isDoctor ? 6 : 9} className="p-4 text-center text-slate-400">Loading catalog…</td>
+                      <td colSpan={!canViewFinancials ? 6 : 9} className="p-4 text-center text-slate-400">Loading catalog…</td>
                     </tr>
                   ) : filteredProducts.length === 0 ? (
                     <tr>
-                      <td colSpan={isDoctor ? 6 : 9} className="p-6 text-center text-slate-400">
+                      <td colSpan={!canViewFinancials ? 6 : 9} className="p-6 text-center text-slate-400">
                         {medicineSearch ? `No medications found matching "${medicineSearch}"` : "No products configured yet."}
                       </td>
                     </tr>
@@ -737,7 +738,7 @@ export default function InventoryPage() {
                       const profit = sale - cost;
                       const margin = sale > 0 ? ((profit / sale) * 100).toFixed(1) : "0.0";
 
-                      if (isDoctor) {
+                      if (!canViewFinancials) {
                         return (
                           <tr key={p.id} className="hover:bg-slate-50">
                             <td className="p-3 font-mono font-bold text-slate-700">{p.sku}</td>

@@ -127,7 +127,7 @@ public class DashboardService {
 				       to_char(q.checked_in_at at time zone 'UTC', 'HH12:MI AM') as check_in_time,
 				       p.id as patient_id, p.name as patient_name,
 				       coalesce(c.display_name, 'Unknown Owner') as client_name,
-				       coalesce(u.display_name, 'Attending Vet') as doctor_name
+				       coalesce(u.display_name, 'Attending Doctor') as doctor_name
 				from queue_entries q
 				join patients p on p.id = q.patient_id and p.clinic_id = q.clinic_id
 				left join clients c on c.id = p.client_id and c.clinic_id = p.clinic_id
@@ -154,7 +154,7 @@ public class DashboardService {
 				select a.id,
 				       p.name as patient_name,
 				       case when lower(coalesce(a.notes, '')) like '%emergency%' then 'Emergency' else 'Scheduled' end as appointment_type,
-				       coalesce(u.display_name, 'Dr. Robert Vance') as doctor_name,
+				       coalesce(u.display_name, 'Attending Doctor') as doctor_name,
 				       to_char(a.starts_at at time zone 'UTC', 'HH12:MI AM') as appt_time,
 				       a.status
 				from appointments a

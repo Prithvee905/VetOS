@@ -713,7 +713,7 @@ export function RecordSoapModal({
         documentType={printDocType}
         prescriptionData={{
           prescriptionDate: new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }),
-          doctorName: session.data?.displayName || "Dr. Alex Smith, BVSc",
+          doctorName: session.data?.displayName || "Attending Doctor",
           clientName: matchingClient?.displayName || "Pet Parent",
           clientPhone: matchingClient?.phone || "",
           petName: selectedPatient?.name || "Patient",

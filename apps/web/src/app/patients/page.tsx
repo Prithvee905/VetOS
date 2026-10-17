@@ -648,7 +648,10 @@ export default function PatientsPage() {
                                     setActivePrintData({
                                       prescription: {
                                         prescriptionDate: new Date(ev.timestamp).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }),
-                                        doctorName: "Dr. Alex Smith, BVSc",
+                                        doctorName:
+                                          usersQuery.data?.items.find((u) =>
+                                            u.roles.some((r) => r.toUpperCase() === "DOCTOR" || r.toUpperCase() === "OWNER")
+                                          )?.displayName || "Attending Doctor",
                                         clientName: timelineQuery.data?.client.displayName || "Pet Parent",
                                         clientPhone: timelineQuery.data?.client.phone || "",
                                         petName: timelineQuery.data?.patient.name || "Patient",
