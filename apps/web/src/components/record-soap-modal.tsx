@@ -89,6 +89,7 @@ export function RecordSoapModal({
   const [createdInvoiceId, setCreatedInvoiceId] = useState<string>("");
 
   const session = useQuery({ queryKey: ["session"], queryFn: currentUser, enabled: isOpen });
+  const isDoctorOrOwner = session.data?.roles?.some((r) => ["OWNER", "DOCTOR"].includes(r)) ?? false;
 
   // Queries
   const patientsQuery = useQuery<PatientRow[]>({
@@ -224,8 +225,8 @@ export function RecordSoapModal({
         differentials: diffList,
       });
 
-      // 2. Create Prescription if any
-      if (prescriptions.length > 0) {
+      // 2. Create Prescription if any (Doctor & Owner only)
+      if (isDoctorOrOwner && prescriptions.length > 0) {
         await createPrescription({
           consultationId: consult.id,
           notes: "Dispensed via SOAP Consultation Station",
@@ -249,12 +250,14 @@ export function RecordSoapModal({
           unitPrice: Math.max(0, Number(charge) || 50),
           sourceType: "SERVICE",
         },
-        ...prescriptions.map((rx) => ({
-          description: `Rx: ${rx.medicineName} (${rx.dosage}, ${rx.frequency})`,
-          quantity: rx.quantity,
-          unitPrice: 15.0,
-          sourceType: "PRESCRIPTION",
-        })),
+        ...(isDoctorOrOwner
+          ? prescriptions.map((rx) => ({
+              description: `Rx: ${rx.medicineName} (${rx.dosage}, ${rx.frequency})`,
+              quantity: rx.quantity,
+              unitPrice: 15.0,
+              sourceType: "PRESCRIPTION",
+            }))
+          : []),
       ];
 
       const createdInv = await issueInvoice({
@@ -339,17 +342,19 @@ export function RecordSoapModal({
 
             {/* Print and Done buttons */}
             <div className="flex flex-wrap items-center justify-center gap-2.5 pt-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setPrintDocType("PRESCRIPTION");
-                  setPrintModalOpen(true);
-                }}
-                className="flex items-center gap-1.5 rounded-xl border border-teal-300 bg-teal-50 px-3.5 py-2 text-xs font-semibold text-teal-900 hover:bg-teal-100 transition shadow-2xs"
-              >
-                <Printer className="h-4 w-4 text-teal-700" />
-                Print Prescription Slip (Rx)
-              </button>
+              {isDoctorOrOwner && prescriptions.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPrintDocType("PRESCRIPTION");
+                    setPrintModalOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 rounded-xl border border-teal-300 bg-teal-50 px-3.5 py-2 text-xs font-semibold text-teal-900 hover:bg-teal-100 transition shadow-2xs"
+                >
+                  <Printer className="h-4 w-4 text-teal-700" />
+                  Print Prescription Slip (Rx)
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -581,12 +586,13 @@ export function RecordSoapModal({
               />
             </div>
 
-            {/* 9. PRESCRIPTIONS CARD */}
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-900">Prescriptions</span>
-                <span className="text-xs text-slate-400">{prescriptions.length} medicines</span>
-              </div>
+            {/* 9. PRESCRIPTIONS CARD (Doctor & Owner Only) */}
+            {isDoctorOrOwner ? (
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-900">Prescriptions</span>
+                  <span className="text-xs text-slate-400">{prescriptions.length} medicines</span>
+                </div>
 
               {/* Form inputs in single inline flex row */}
               <datalist id="soap-modal-medicines-list">
@@ -713,6 +719,17 @@ export function RecordSoapModal({
                 </div>
               )}
             </div>
+            ) : (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-xs text-amber-900 flex items-start gap-2.5">
+                <AlertCircle className="h-4 w-4 text-amber-700 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">Prescription Writing Restricted</p>
+                  <p className="text-amber-700 mt-0.5">
+                    Only verified Veterinarians and Clinic Owners are authorized to prescribe medications or clinical treatment plans. Receptionists cannot author prescriptions.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* 10. AUTO-BILLED AS */}
             <div className="flex items-center justify-between text-xs pt-1">

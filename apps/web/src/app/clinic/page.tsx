@@ -657,6 +657,10 @@ export default function ClinicOperationsStation() {
   });
 
   function startConsultationForQueueEntry(entry: QueueEntry) {
+    if (!canConductClinicalSOAP) {
+      notifyError("Prescription authoring and clinical consultations are restricted to Doctors and Clinic Owners only.");
+      return;
+    }
     setActiveQueueEntryId(entry.id);
     setActiveAppointmentId(entry.appointmentId);
     setActivePatientId(entry.patientId);
@@ -670,6 +674,9 @@ export default function ClinicOperationsStation() {
   // ----------------------------------------------------
   const submitSoapConsultation = useMutation({
     mutationFn: async () => {
+      if (!canConductClinicalSOAP) {
+        throw new Error("Prescriptions and consultations can only be recorded by licensed Veterinarians and Clinic Owners.");
+      }
       if (!activeAppointmentId) {
         throw new Error("No appointment linked. Please select a patient from the queue or appointments list.");
       }
@@ -1931,13 +1938,19 @@ export default function ClinicOperationsStation() {
                     </div>
 
                     <div className="mt-4 flex flex-wrap gap-2 pt-2 border-t border-slate-100">
-                      <Button
-                        size="sm"
-                        className="flex-1 bg-teal-700 hover:bg-teal-800 text-white"
-                        onClick={() => startConsultationForQueueEntry(entry)}
-                      >
-                        Start SOAP Consult →
-                      </Button>
+                      {canConductClinicalSOAP ? (
+                        <Button
+                          size="sm"
+                          className="flex-1 bg-teal-700 hover:bg-teal-800 text-white"
+                          onClick={() => startConsultationForQueueEntry(entry)}
+                        >
+                          Start SOAP Consult →
+                        </Button>
+                      ) : (
+                        <div className="flex-1 text-center py-1.5 px-3 rounded-lg bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-500">
+                          Assigned to Doctor
+                        </div>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"
@@ -2109,7 +2122,7 @@ export default function ClinicOperationsStation() {
                             >
                               Check-In to Queue
                             </Button>
-                          ) : (
+                          ) : canConductClinicalSOAP ? (
                             <Button
                               size="sm"
                               variant="outline"
@@ -2122,6 +2135,8 @@ export default function ClinicOperationsStation() {
                             >
                               Open SOAP
                             </Button>
+                          ) : (
+                            <span className="text-xs text-slate-400 font-medium">Checked In</span>
                           )}
                         </td>
                       </tr>

@@ -20,6 +20,7 @@ import {
   type PatientRow,
   type ClientRow,
   type PatientTimeline,
+  currentUser,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { RecordSoapModal } from "@/components/record-soap-modal";
@@ -33,6 +34,9 @@ export default function PatientsPage() {
   const searchParams = useSearchParams();
   const initialPatientId = searchParams.get("selected");
   const [soapModalOpen, setSoapModalOpen] = useState(false);
+
+  const session = useQuery({ queryKey: ["session"], queryFn: currentUser });
+  const isDoctorOrOwner = session.data?.roles.some((r) => ["OWNER", "DOCTOR"].includes(r)) ?? false;
 
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(initialPatientId);
   const [filterQuery, setFilterQuery] = useState("");
@@ -443,14 +447,16 @@ export default function PatientsPage() {
                     >
                       ⚡ Check into Queue
                     </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="bg-teal-700 text-white hover:bg-teal-800"
-                      onClick={() => setSoapModalOpen(true)}
-                    >
-                      + Record SOAP Consult
-                    </Button>
+                    {isDoctorOrOwner && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="bg-teal-700 text-white hover:bg-teal-800"
+                        onClick={() => setSoapModalOpen(true)}
+                      >
+                        + Record SOAP Consult
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       variant="outline"
