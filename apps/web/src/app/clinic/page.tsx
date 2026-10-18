@@ -468,6 +468,7 @@ export default function ClinicOperationsStation() {
   const [discountPercent, setDiscountPercent] = useState<number>(0);
   const [discountError, setDiscountError] = useState<string>("");
   const [applyDiscountToMedicines, setApplyDiscountToMedicines] = useState<boolean>(false);
+  const [invoiceCustomPhone, setInvoiceCustomPhone] = useState<string>("7981596766");
 
   useEffect(() => {
     if (clinicProfile.data?.allowMedicineDiscount !== undefined) {
@@ -1295,7 +1296,7 @@ export default function ClinicOperationsStation() {
         (activePatientId && c.id === patients.data?.find((p) => p.id === activePatientId)?.clientId)
     );
     const patient = patients.data?.find((p) => p.id === (basketPatientId || activePatientId));
-    const targetPhone = client?.phone || "6281356498";
+    const targetPhone = invoiceCustomPhone.trim() || client?.phone || "7981596766";
     const cleanPhone = targetPhone.replace(/\D/g, "");
     const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
 
@@ -1314,14 +1315,16 @@ export default function ClinicOperationsStation() {
         to: formattedPhone,
         body: msg,
       });
-      notifySuccess(`⚡ Invoice #${invNumber} sent to ${targetPhone} via WhatsApp Cloud API!`);
-    } catch {
-      notifySuccess(`Opening WhatsApp for ${targetPhone}…`);
+      notifySuccess(`⚡ Invoice #${invNumber} sent to +${formattedPhone} via Meta WhatsApp Cloud API!`);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes("131030") || errMsg.includes("not in allowed list")) {
+        notifyError(`Meta Sandbox Notice: +${formattedPhone} must be added to your Meta Developer Portal allowed recipient list (under WhatsApp -> API Setup -> "To" phone numbers) before sending.`);
+      } else {
+        notifyError(`Meta WhatsApp Cloud API: ${errMsg}`);
+      }
     } finally {
       setWaSending(false);
-      if (typeof window !== "undefined") {
-        window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, "_blank");
-      }
     }
   }
 
@@ -3580,17 +3583,31 @@ export default function ClinicOperationsStation() {
                 </div>
 
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-4 bg-slate-50 rounded-lg p-3 border border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-slate-600">Payment:</span>
-                    <select
-                      className="rounded border border-slate-300 p-1.5 text-xs font-semibold"
-                      value={paymentMethod}
-                      onChange={(e) => setPaymentMethod(e.target.value)}
-                    >
-                      <option value="UPI">UPI / QR Code</option>
-                      <option value="CARD">Credit / Debit Card</option>
-                      <option value="CASH">Cash at Counter</option>
-                    </select>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-semibold text-slate-600">Payment:</span>
+                      <select
+                        className="rounded border border-slate-300 bg-white p-1.5 text-xs font-semibold"
+                        value={paymentMethod}
+                        onChange={(e) => setPaymentMethod(e.target.value)}
+                      >
+                        <option value="UPI">UPI / QR Code</option>
+                        <option value="CARD">Credit / Debit Card</option>
+                        <option value="CASH">Cash at Counter</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-semibold text-slate-600">WhatsApp To:</span>
+                      <input
+                        type="tel"
+                        placeholder="7981596766"
+                        value={invoiceCustomPhone}
+                        onChange={(e) => setInvoiceCustomPhone(e.target.value)}
+                        className="w-32 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-800 placeholder-slate-400 focus:border-teal-500 focus:outline-none"
+                        title="Enter 10-digit WhatsApp phone to dispatch official invoice"
+                      />
+                    </div>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">

@@ -41,7 +41,8 @@ public final class RolePermissions {
 					"INVOICE_WRITE",
 					"PAYMENT_WRITE",
 					"FILE_READ",
-					"FILE_WRITE"),
+					"FILE_WRITE",
+					"COMMUNICATION_SEND"),
 			"RECEPTIONIST", Set.of(
 					"BRANCH_READ",
 					"LEAD_WRITE",
@@ -54,7 +55,8 @@ public final class RolePermissions {
 					"INVOICE_WRITE",
 					"PAYMENT_WRITE",
 					"FILE_READ",
-					"FILE_WRITE"),
+					"FILE_WRITE",
+					"COMMUNICATION_SEND"),
 			"STAFF", Set.of("BRANCH_READ", "QUEUE_WRITE", "INVENTORY_WRITE", "CATALOG_WRITE", "FILE_READ"));
 
 	private static final Set<String> ASSIGNABLE_ROLES = Set.of("OWNER", "DOCTOR", "RECEPTIONIST", "STAFF");
