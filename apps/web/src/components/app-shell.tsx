@@ -120,6 +120,7 @@ export function AppShell({ children, title }: { children: React.ReactNode; title
   }, []);
 
   function handleBranchSwitch(branchId: string) {
+    if (!session.data?.roles.includes("OWNER")) return;
     setActiveBranchId(branchId);
     if (typeof window !== "undefined") {
       localStorage.setItem("vetos_active_branch_id", branchId);
@@ -161,35 +162,41 @@ export function AppShell({ children, title }: { children: React.ReactNode; title
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* Global Multi-Branch Switcher */}
+          {/* Global Multi-Branch Switcher (Owner only; static badge for Doctor/Staff/Receptionist) */}
           <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-2xs">
             <span className="text-xs font-bold text-teal-700">📍</span>
             <span className="text-xs font-semibold text-slate-500 hidden sm:inline">Branch:</span>
-            <select
-              id="global-branch-switcher"
-              aria-label="Active Clinic Branch"
-              className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer pr-1"
-              value={activeBranchId}
-              onChange={(e) => handleBranchSwitch(e.target.value)}
-            >
-              {branchesList.length === 0 ? (
-                <option value="">Loading branches…</option>
-              ) : (
-                branchesList.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))
-              )}
-            </select>
-            {isOwner && (
-              <Link
-                href="/settings/clinic"
-                className="text-[11px] font-semibold text-teal-700 hover:text-teal-900 ml-1 border-l border-slate-200 pl-2"
-                title="Manage clinic locations & add new branches"
-              >
-                + Add / Manage
-              </Link>
+            {isOwner ? (
+              <>
+                <select
+                  id="global-branch-switcher"
+                  aria-label="Active Clinic Branch"
+                  className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer pr-1"
+                  value={activeBranchId}
+                  onChange={(e) => handleBranchSwitch(e.target.value)}
+                >
+                  {branchesList.length === 0 ? (
+                    <option value="">Loading branches…</option>
+                  ) : (
+                    branchesList.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <Link
+                  href="/settings/clinic"
+                  className="text-[11px] font-semibold text-teal-700 hover:text-teal-900 ml-1 border-l border-slate-200 pl-2"
+                  title="Manage clinic locations & add new branches"
+                >
+                  + Add / Manage
+                </Link>
+              </>
+            ) : (
+              <span className="text-xs font-bold text-slate-800 px-1">
+                {branchesList.find((b) => b.id === activeBranchId)?.name || "Main"}
+              </span>
             )}
           </div>
 

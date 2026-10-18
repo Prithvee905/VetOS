@@ -1543,24 +1543,30 @@ export default function ClinicOperationsStation() {
 
         <div className="flex items-center gap-2 text-xs text-slate-600 font-medium">
           <label htmlFor="branch-switcher-select" className="font-semibold text-slate-700">Branch:</label>
-          <select
-            id="branch-switcher-select"
-            aria-label="Active Branch"
-            className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
-            value={branchId}
-            onChange={(e) => {
-              setSelectedBranchId(e.target.value);
-              if (typeof window !== "undefined") {
-                localStorage.setItem("vetos_active_branch_id", e.target.value);
-              }
-            }}
-          >
-            {(branches.data?.items ?? []).map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
+          {isOwner ? (
+            <select
+              id="branch-switcher-select"
+              aria-label="Active Branch"
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+              value={branchId}
+              onChange={(e) => {
+                setSelectedBranchId(e.target.value);
+                if (typeof window !== "undefined") {
+                  localStorage.setItem("vetos_active_branch_id", e.target.value);
+                }
+              }}
+            >
+              {(branches.data?.items ?? []).map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-700 shadow-2xs">
+              {(branches.data?.items ?? []).find((b) => b.id === branchId)?.name ?? "Main"}
+            </span>
+          )}
         </div>
       </div>
 
