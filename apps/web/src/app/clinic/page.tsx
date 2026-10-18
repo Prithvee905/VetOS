@@ -126,6 +126,14 @@ export default function ClinicOperationsStation() {
   const canHandlePOS = session.data?.roles.some((r) => ["OWNER", "RECEPTIONIST"].includes(r)) ?? false;
   const isOwner = session.data?.roles.includes("OWNER") ?? false;
   const isDoctor = (session.data?.roles.includes("DOCTOR") ?? false) && !isOwner;
+  const canConductClinicalSOAP = session.data?.roles.some((r) => ["OWNER", "DOCTOR"].includes(r)) ?? false;
+
+  useEffect(() => {
+    if (session.data && !canConductClinicalSOAP && activeTab === "soap") {
+      setActiveTab("queue");
+    }
+  }, [session.data, canConductClinicalSOAP, activeTab]);
+
   const [queueDoctorScope, setQueueDoctorScope] = useState<"MY" | "ALL">("MY");
   const [apptDoctorScope, setApptDoctorScope] = useState<"MY" | "ALL">("MY");
 
@@ -1440,19 +1448,21 @@ export default function ClinicOperationsStation() {
             </span>
           </button>
 
-          <button
-            onClick={() => setActiveTab("soap")}
-            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
-              activeTab === "soap"
-                ? "bg-teal-700 text-white shadow-sm"
-                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-            }`}
-          >
-            <span>SOAP Consultation Station</span>
-            {activeAppointmentId && (
-              <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" title="Active Patient Loaded" />
-            )}
-          </button>
+          {canConductClinicalSOAP && (
+            <button
+              onClick={() => setActiveTab("soap")}
+              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
+                activeTab === "soap"
+                  ? "bg-teal-700 text-white shadow-sm"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+            >
+              <span>SOAP Consultation Station</span>
+              {activeAppointmentId && (
+                <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" title="Active Patient Loaded" />
+              )}
+            </button>
+          )}
 
           {canHandlePOS && (
             <button
@@ -2090,6 +2100,23 @@ export default function ClinicOperationsStation() {
       {/* TAB 3: FULL SOAP CONSULTATION STATION                                     */}
       {/* ========================================================================= */}
       {activeTab === "soap" && (
+        !canConductClinicalSOAP ? (
+          <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-8 text-center max-w-xl mx-auto my-12 shadow-sm">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-rose-100 text-rose-700 mb-3 border border-rose-200">
+              <AlertCircle className="h-6 w-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900">Doctor &amp; Clinic Owner Access Only</h3>
+            <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+              Clinical SOAP examinations, diagnostics, and prescribing are strictly restricted to licensed Veterinarians and Clinic Owners. Reception staff have operational access to Live Queue Triage, Appointments, Walk-in Check-in, and POS Billing.
+            </p>
+            <Button
+              className="mt-5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs"
+              onClick={() => setActiveTab("queue")}
+            >
+              Return to Live Queue Triage →
+            </Button>
+          </div>
+        ) : (
         <div className="flex flex-col gap-6">
           {/* Active Context Banner */}
           <div className="rounded-xl border border-teal-200 bg-teal-50/60 p-4 flex flex-wrap items-center justify-between gap-4">
@@ -2173,7 +2200,7 @@ export default function ClinicOperationsStation() {
           )}
 
           {/* Patient Immunization & Preventative Health Card */}
-          {activePatientId && (
+          {activePatientId ? (
             <div className="rounded-xl border border-teal-200 bg-white p-4 shadow-sm space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5">
@@ -2277,6 +2304,41 @@ export default function ClinicOperationsStation() {
                   )}
                 </div>
               )}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-teal-200 bg-white p-4 shadow-sm space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="rounded-lg bg-teal-50 p-2 text-teal-800 border border-teal-200">
+                    <Syringe className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900">
+                      Patient Immunization Status &amp; Vaccination History Card
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Live vaccine status (Rabies, DHPPiL, Kennel Cough, Deworming) and direct dose administration.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                <span className="text-xs font-semibold text-slate-600">Quick Select Patient to View Vaccines:</span>
+                {patients.data?.slice(0, 8).map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      setActivePatientId(p.id);
+                      setBasketPatientId(p.id);
+                    }}
+                    className="rounded-lg border border-teal-200 bg-teal-50/70 px-2.5 py-1 text-xs font-bold text-teal-900 hover:bg-teal-100 hover:border-teal-400 transition flex items-center gap-1 shadow-2xs"
+                  >
+                    <span>🐾 {p.name}</span>
+                    <span className="text-[10px] text-slate-500 font-normal">({p.speciesCode})</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -2801,6 +2863,7 @@ export default function ClinicOperationsStation() {
             </div>
           </div>
         </div>
+        )
       )}
 
       {/* ========================================================================= */}

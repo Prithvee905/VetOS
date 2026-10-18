@@ -1129,6 +1129,3 @@ export async function listFiles(entityType: string, entityId: string): Promise<F
 export function getFileDownloadUrl(fileId: string): string {
   return `${apiUrl()}/api/v1/files/${fileId}/download`;
 }
-
-
-
