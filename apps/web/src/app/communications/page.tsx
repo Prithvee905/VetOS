@@ -463,30 +463,34 @@ export default function CommunicationsHubPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <a
-                    href={waPhone ? getWhatsAppUrl(waPhone, waBody) : "#"}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={`flex items-center justify-center gap-1.5 rounded-lg py-2.5 px-3 text-xs font-bold text-white transition-all shadow-xs ${
-                      waPhone
-                        ? "bg-emerald-600 hover:bg-emerald-700"
-                        : "bg-slate-300 pointer-events-none"
-                    }`}
-                  >
-                    <MessageSquare className="h-3.5 w-3.5" />
-                    <span>Open in WhatsApp Web</span>
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-
+                <div className="flex flex-col gap-2 mt-2">
                   <Button
-                    className="bg-teal-700 hover:bg-teal-800 text-white font-semibold text-xs"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 text-xs shadow-sm flex items-center justify-center gap-1.5"
                     onClick={() => sendWhatsAppMutation.mutate()}
                     disabled={!waPhone || sendWhatsAppMutation.isPending}
                   >
                     <Send className="h-3.5 w-3.5 mr-1" />
-                    {sendWhatsAppMutation.isPending ? "Queuing…" : "Queue to Outbox"}
+                    {sendWhatsAppMutation.isPending ? "Dispatching via Meta API…" : "⚡ Send via WhatsApp Cloud API (Automated)"}
                   </Button>
+                  <p className="text-[11px] text-slate-500 text-center">
+                    Dispatched directly from the server via official Meta WhatsApp Cloud API.
+                  </p>
+
+                  <div className="border-t border-slate-100 pt-2 flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400">Prefer personal 1-on-1 desk chat?</span>
+                    <a
+                      href={waPhone ? getWhatsAppUrl(waPhone, waBody) : "#"}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={`inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 hover:text-emerald-700 hover:underline ${
+                        !waPhone ? "pointer-events-none opacity-40" : ""
+                      }`}
+                    >
+                      <MessageSquare className="h-3 w-3 text-emerald-600" />
+                      <span>Optional: Open in WhatsApp Web</span>
+                      <ExternalLink className="h-2.5 w-2.5" />
+                    </a>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -648,10 +652,13 @@ export default function CommunicationsHubPage() {
               <Send className="h-4 w-4" />
               <span>
                 {broadcastMutation.isPending
-                  ? "Broadcasting…"
-                  : `⚡ Broadcast to All in This Segment`}
+                  ? "Broadcasting via Meta API…"
+                  : `⚡ Broadcast via WhatsApp Cloud API (Automated)`}
               </span>
             </Button>
+            <p className="text-[11px] text-slate-500 text-center">
+              Sent automatically in the background via official Meta WhatsApp Cloud API.
+            </p>
           </div>
 
           {/* Right Column: Recipient Table with 1-Click WhatsApp Links */}
