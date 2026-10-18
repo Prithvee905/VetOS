@@ -145,6 +145,7 @@ export default function ClinicOperationsStation() {
   const loyalDiscountCap = Number(clinicProfile.data?.loyalDiscountPercent ?? 30);
   const ngoConsultationDiscountPercent = Number(clinicProfile.data?.ngoConsultationDiscountPercent ?? 50);
   const defaultAllowMedicineDiscount = Boolean(clinicProfile.data?.allowMedicineDiscount ?? false);
+  const clinicName = clinicProfile.data?.name || "VetOS Super Specialty Pet Hospital";
 
   // Global data queries
   const branches = useQuery({ queryKey: ["branches"], queryFn: () => listBranches() });
@@ -1261,7 +1262,7 @@ export default function ClinicOperationsStation() {
     }
     const cleanPhone = receipt.clientPhone.replace(/\D/g, "");
     const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-    const msg = `*PAWCARE SUPER SPECIALTY PET HOSPITAL*\nOfficial Invoice Receipt\n-------------------------------\nInvoice: #${receipt.invoiceNumber}\nDate: ${receipt.dateStr}\nClient: ${receipt.clientName}\nPatient: ${receipt.petName || "Pet"}\nPayment: ${receipt.paymentMethod} (PAID)\nTotal Amount: ₹${receipt.total.toFixed(2)}\n-------------------------------\nThank you for trusting PawCare Clinic! For appointments & queries, call our front desk.`;
+    const msg = `*${clinicName.toUpperCase()}*\nOfficial Invoice Receipt\n-------------------------------\nInvoice: #${receipt.invoiceNumber}\nDate: ${receipt.dateStr}\nClient: ${receipt.clientName}\nPatient: ${receipt.petName || "Pet"}\nPayment: ${receipt.paymentMethod} (PAID)\nTotal Amount: ₹${receipt.total.toFixed(2)}\n-------------------------------\nThank you for trusting ${clinicName}! For appointments & queries, call our front desk.`;
 
     setWaSending(true);
     try {
@@ -1272,6 +1273,43 @@ export default function ClinicOperationsStation() {
       notifySuccess(`WhatsApp receipt queued for ${receipt.clientPhone}`);
     } catch {
       notifySuccess(`Opening WhatsApp chat with ${receipt.clientPhone}…`);
+    } finally {
+      setWaSending(false);
+      if (typeof window !== "undefined") {
+        window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, "_blank");
+      }
+    }
+  }
+
+  async function handleSendInvoiceWhatsApp(inv?: InvoiceRow | null) {
+    const client = clients.data?.find(
+      (c) =>
+        c.id === basketClientId ||
+        (activePatientId && c.id === patients.data?.find((p) => p.id === activePatientId)?.clientId)
+    );
+    const patient = patients.data?.find((p) => p.id === (basketPatientId || activePatientId));
+    const targetPhone = client?.phone || "6281356498";
+    const cleanPhone = targetPhone.replace(/\D/g, "");
+    const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+
+    const total = inv ? Number(inv.total) : finalTotal;
+    const invNumber = inv?.invoiceNumber || (completedReceipt?.invoiceNumber ?? "BILL-" + Date.now().toString().slice(-4));
+    const itemsSummary = basketLines
+      .slice(0, 6)
+      .map((l) => `• ${l.description}: ${l.quantity}x @ ₹${l.unitPrice} = ₹${(l.quantity * l.unitPrice).toFixed(2)}`)
+      .join("\n");
+
+    const msg = `*${clinicName.toUpperCase()}*\n🐾 Official Invoice & Bill Receipt\n-------------------------------\nInvoice: #${invNumber}\nDate: ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}\nClient: ${client?.displayName || "Pet Parent"}\nPatient: ${patient?.name || "Pet"}\n\n*Bill Breakdown:*\n${itemsSummary}\n\n*Total Due / Paid: ₹${total.toFixed(2)}*\nStatus: ${inv?.status === "PAID" || completedReceipt ? "PAID ✓" : "DUE AT COUNTER"}\n-------------------------------\nThank you for choosing ${clinicName}! For questions, call our clinic desk.`;
+
+    setWaSending(true);
+    try {
+      await sendWhatsApp({
+        to: formattedPhone,
+        body: msg,
+      });
+      notifySuccess(`⚡ Invoice #${invNumber} sent to ${targetPhone} via WhatsApp Cloud API!`);
+    } catch {
+      notifySuccess(`Opening WhatsApp for ${targetPhone}…`);
     } finally {
       setWaSending(false);
       if (typeof window !== "undefined") {
@@ -2151,6 +2189,16 @@ export default function ClinicOperationsStation() {
             </div>
 
             <div className="flex items-center gap-2">
+              {basketLines.length > 0 && canHandlePOS && (
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 shadow-2xs"
+                  onClick={() => setActiveTab("pos")}
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  <span>Invoice Ready ({basketLines.length}) • Send WhatsApp →</span>
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -3524,7 +3572,18 @@ export default function ClinicOperationsStation() {
                     </select>
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      id="btn-pos-send-whatsapp"
+                      size="sm"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 shadow-2xs"
+                      onClick={() => handleSendInvoiceWhatsApp(issuedInvoice)}
+                      disabled={waSending || basketLines.length === 0}
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      <span>{waSending ? "Sending…" : "⚡ Send Invoice on WhatsApp"}</span>
+                    </Button>
+
                     {!issuedInvoice ? (
                       <Button
                         id="btn-issue-invoice"
@@ -3540,7 +3599,7 @@ export default function ClinicOperationsStation() {
                         <Button
                           id="btn-collect-payment"
                           size="sm"
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                          className="bg-teal-700 hover:bg-teal-800 text-white font-bold"
                           onClick={() => payUnifiedInvoiceMutation.mutate()}
                           disabled={payUnifiedInvoiceMutation.isPending}
                         >
