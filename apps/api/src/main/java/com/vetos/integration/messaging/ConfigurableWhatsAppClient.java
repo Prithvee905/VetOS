@@ -34,22 +34,56 @@ public class ConfigurableWhatsAppClient implements WhatsAppClient {
 		}
 		String accessToken = properties.whatsApp().accessToken();
 		if (!StringUtils.hasText(accessToken)) {
-			throw new IllegalStateException("vetos.whatsapp.access-token is required when api-base-url is set.");
+			log.warn("WhatsApp access token not configured, skipping send to={}", message.toPhoneE164());
+			return;
 		}
-		Map<String, Object> body = Map.of(
-				"messaging_product", "whatsapp",
-				"to", message.toPhoneE164(),
-				"type", "template",
-				"template", Map.of(
-						"name", message.templateName(),
-						"language", Map.of("code", message.languageCode())));
-		restClient.post()
-				.uri(baseUrl)
-				.contentType(MediaType.APPLICATION_JSON)
-				.header("Authorization", "Bearer " + accessToken)
-				.body(objectMapper.valueToTree(body).toString())
-				.retrieve()
-				.toBodilessEntity();
+
+		String cleanPhone = message.toPhoneE164() != null ? message.toPhoneE164().replaceAll("[^0-9]", "") : "";
+		if (cleanPhone.length() == 10) {
+			cleanPhone = "91" + cleanPhone;
+		}
+
+		if (cleanPhone.isBlank()) {
+			log.warn("Cannot send WhatsApp message: recipient phone is empty.");
+			return;
+		}
+
+		Map<String, Object> body;
+		if ("hello_world".equalsIgnoreCase(message.templateName())) {
+			body = Map.of(
+					"messaging_product", "whatsapp",
+					"to", cleanPhone,
+					"type", "template",
+					"template", Map.of(
+							"name", "hello_world",
+							"language", Map.of("code", "en_US")));
+		} else {
+			String textContent = StringUtils.hasText(message.bodyPreview())
+					? message.bodyPreview()
+					: "🐾 VetOS Clinic Alert: Follow-up update regarding your pet.";
+			body = Map.of(
+					"messaging_product", "whatsapp",
+					"recipient_type", "individual",
+					"to", cleanPhone,
+					"type", "text",
+					"text", Map.of(
+							"preview_url", false,
+							"body", textContent));
+		}
+
+		try {
+			String response = restClient.post()
+					.uri(baseUrl)
+					.contentType(MediaType.APPLICATION_JSON)
+					.header("Authorization", "Bearer " + accessToken)
+					.body(objectMapper.valueToTree(body).toString())
+					.retrieve()
+					.body(String.class);
+			log.info("WhatsApp message successfully dispatched to {}! Meta response: {}", cleanPhone, response);
+		} catch (Exception ex) {
+			log.error("Failed to send WhatsApp message to {}: {}", cleanPhone, ex.getMessage(), ex);
+			throw ex;
+		}
 	}
 
 }
