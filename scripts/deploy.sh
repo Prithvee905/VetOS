@@ -14,6 +14,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
+# 0. Sync with remote main (production servers must match GitHub)
+if git rev-parse --is-inside-work-tree &>/dev/null; then
+  echo "[+] Syncing git with origin/main..."
+  git fetch origin main 2>/dev/null || true
+  if git rev-parse origin/main &>/dev/null; then
+    LOCAL_SHA="$(git rev-parse HEAD)"
+    REMOTE_SHA="$(git rev-parse origin/main)"
+    if [ "$LOCAL_SHA" != "$REMOTE_SHA" ]; then
+      echo "[!] Local $LOCAL_SHA is behind origin/main $REMOTE_SHA — updating..."
+      git pull --ff-only origin main || {
+        echo "[-] git pull failed. Fix conflicts or run: git reset --hard origin/main"
+        exit 1
+      }
+    fi
+  fi
+  export GIT_COMMIT="$(git rev-parse --short HEAD)"
+  echo "[+] Deploying commit: $GIT_COMMIT — $(git log -1 --pretty=%s)"
+else
+  export GIT_COMMIT="unknown"
+fi
+
 # 1. Check for .env.production
 if [ ! -f .env.production ]; then
   echo "[-] ERROR: .env.production file not found!"
@@ -57,9 +78,12 @@ echo "[+] Backend jar artifact built successfully."
 chmod +x "$PROJECT_ROOT/docker/postgres/01-init-role.sh" || true
 chmod +x "$PROJECT_ROOT"/scripts/*.sh || true
 
-# 5. Launch / Rebuild Production Stack
+# 5. Launch / Rebuild Production Stack (no cache on web/api so UI always matches git)
+echo "[+] Rebuilding web and api images (GIT_COMMIT=$GIT_COMMIT)..."
+docker compose -f docker-compose.prod.yml --env-file .env.production build --no-cache --pull web api
 echo "[+] Launching production containers via docker-compose.prod.yml..."
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build --remove-orphans
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --force-recreate --remove-orphans web api
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d caddy postgres redis
 
 echo "[+] Waiting for services to become healthy..."
 sleep 10

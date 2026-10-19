@@ -4,7 +4,9 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 ARG API_ORIGIN=http://api:8080
+ARG GIT_COMMIT=unknown
 ENV API_ORIGIN=$API_ORIGIN
+ENV NEXT_PUBLIC_BUILD_SHA=$GIT_COMMIT
 RUN npm run build
 
 FROM node:22-alpine

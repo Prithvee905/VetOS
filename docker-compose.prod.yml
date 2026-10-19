@@ -95,6 +95,7 @@ services:
       context: ./apps/web
       args:
         API_ORIGIN: ${API_ORIGIN:-http://api:8080}
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     restart: unless-stopped
     environment:
       NODE_ENV: production

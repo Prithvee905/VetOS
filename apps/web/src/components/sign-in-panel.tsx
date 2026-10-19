@@ -36,6 +36,11 @@ export function SignInPanel() {
         <h1 className="text-3xl font-semibold tracking-tight">VetOS</h1>
       </div>
       <p className="text-slate-600">Sign in with your clinic account.</p>
+      {process.env.NEXT_PUBLIC_BUILD_SHA ? (
+        <p className="text-[10px] text-slate-400" data-testid="app-build-sha">
+          Build {process.env.NEXT_PUBLIC_BUILD_SHA}
+        </p>
+      ) : null}
       {error ? <p className="text-sm text-rose-700">{error}</p> : null}
       {form.formState.errors.email ? (
         <p className="text-sm text-rose-700">{form.formState.errors.email.message}</p>
