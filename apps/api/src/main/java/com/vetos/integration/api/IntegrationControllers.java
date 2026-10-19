@@ -70,7 +70,8 @@ public class IntegrationControllers {
 						body.language(),
 						body.body(),
 						body.templateParams() == null ? java.util.List.of() : body.templateParams(),
-						session));
+						session,
+						parseInvoiceId(body.invoiceId())));
 	}
 
 	@PostMapping("/communications/email")
@@ -172,13 +173,21 @@ public class IntegrationControllers {
 		webhookService.ingestWhatsApp(body);
 	}
 
+	private static UUID parseInvoiceId(String raw) {
+		if (raw == null || raw.isBlank()) {
+			return null;
+		}
+		return UUID.fromString(raw.trim());
+	}
+
 	public record WhatsAppBody(
 			@NotBlank String to,
 			String template,
 			String language,
 			String body,
 			Boolean sessionMessage,
-			java.util.List<String> templateParams) {
+			java.util.List<String> templateParams,
+			String invoiceId) {
 	}
 
 	public record EmailBody(@NotBlank String to, @NotBlank String subject, @NotBlank String body) {

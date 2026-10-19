@@ -12,6 +12,8 @@ Create and **approve** these templates in [Meta Business Manager](https://busine
 | `followup_reminder` | Utility | Hello {{1}}, follow-up for {{2}} with Dr. {{3}} on {{4}}. | 1=owner, 2=pet, 3=doctor, 4=date |
 | `campaign_notice` | Marketing | Hello {{1}}, message from {{2}} regarding {{3}}. | 1=owner, 2=clinic name, 3=pet or short note |
 | `hello_world` | Utility | (Meta sample) | none |
+| `invoice_pdf_alert` | Utility | Document header (PDF) + body with {{1}} owner name | 1=owner name; PDF generated server-side |
+| `invoice_alert` | Utility | Text invoice notice (no attachment) | per Meta template |
 
 Language code used in API: **`en`** (map to `en_US` in Meta if required for `hello_world`).
 
@@ -24,6 +26,8 @@ The API maps reminder/campaign template keys to Meta names:
 - `DEWORM_REMINDER` → `deworm_due`
 - `FOLLOWUP_REMINDER` → `followup_reminder`
 - `CAMPAIGN_*` / `BROADCAST_*` / `DEFAULT` → `campaign_notice`
+- `INVOICE_PDF` → `invoice_pdf_alert` (requires `invoiceId` on `/api/v1/communications/whatsapp`)
+- `INVOICE_ALERT` → `invoice_alert`
 
 ## Session messages (24-hour window)
 

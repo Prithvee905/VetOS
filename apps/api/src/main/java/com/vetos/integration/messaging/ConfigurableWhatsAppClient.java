@@ -80,8 +80,24 @@ public class ConfigurableWhatsAppClient implements WhatsAppClient {
 			ObjectNode template = body.putObject("template");
 			template.put("name", metaName);
 			template.putObject("language").put("code", lang);
+			ArrayNode componentsArray = null;
+			if (StringUtils.hasText(message.headerDocumentMediaId())) {
+				componentsArray = template.putArray("components");
+				ObjectNode headerComponent = componentsArray.addObject();
+				headerComponent.put("type", "header");
+				ArrayNode headerParameters = headerComponent.putArray("parameters");
+				ObjectNode docParam = headerParameters.addObject();
+				docParam.put("type", "document");
+				ObjectNode document = docParam.putObject("document");
+				document.put("id", message.headerDocumentMediaId());
+				if (StringUtils.hasText(message.headerDocumentFilename())) {
+					document.put("filename", message.headerDocumentFilename());
+				}
+			}
 			if (!params.isEmpty()) {
-				ArrayNode componentsArray = template.putArray("components");
+				if (componentsArray == null) {
+					componentsArray = template.putArray("components");
+				}
 				ObjectNode bodyComponent = componentsArray.addObject();
 				bodyComponent.put("type", "body");
 				ArrayNode parameters = bodyComponent.putArray("parameters");

@@ -33,6 +33,9 @@ public class CommunicationService {
 		if (request.templateParams() != null && !request.templateParams().isEmpty()) {
 			payload.put("templateParams", request.templateParams());
 		}
+		if (request.invoiceId() != null) {
+			payload.put("invoiceId", request.invoiceId().toString());
+		}
 		platformExpansionService.enqueueOutbox(clinicId, "WHATSAPP_MESSAGE", toJsonObject(payload));
 	}
 
@@ -90,10 +93,21 @@ public class CommunicationService {
 			String language,
 			String body,
 			java.util.List<String> templateParams,
-			boolean sessionMessage) {
+			boolean sessionMessage,
+			UUID invoiceId) {
 
 		public WhatsAppRequest(String to, String template, String language, String body) {
-			this(to, template, language, body, java.util.List.of(), false);
+			this(to, template, language, body, java.util.List.of(), false, null);
+		}
+
+		public WhatsAppRequest(
+				String to,
+				String template,
+				String language,
+				String body,
+				java.util.List<String> templateParams,
+				boolean sessionMessage) {
+			this(to, template, language, body, templateParams, sessionMessage, null);
 		}
 	}
 	public record EmailRequest(String to, String subject, String body) {}

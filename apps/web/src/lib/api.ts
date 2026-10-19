@@ -922,7 +922,15 @@ export async function listOutboxEvents(limit = 50): Promise<OutboxEvent[]> {
   return apiJson<OutboxEvent[]>(`/api/v1/communications/outbox?limit=${limit}`);
 }
 
-export async function sendWhatsApp(body: { to: string; template?: string; language?: string; body: string }): Promise<void> {
+export async function sendWhatsApp(body: {
+  to: string;
+  template?: string;
+  language?: string;
+  body: string;
+  templateParams?: string[];
+  invoiceId?: string;
+  sessionMessage?: boolean;
+}): Promise<void> {
   await apiJson("/api/v1/communications/whatsapp", { method: "POST", body: JSON.stringify(body) });
 }
 

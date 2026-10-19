@@ -10,10 +10,22 @@ public interface WhatsAppClient {
 			String languageCode,
 			String bodyPreview,
 			java.util.List<String> templateParams,
-			boolean sessionMessage) {
+			boolean sessionMessage,
+			String headerDocumentMediaId,
+			String headerDocumentFilename) {
 
 		public WhatsAppMessage(String toPhoneE164, String templateName, String languageCode, String bodyPreview) {
-			this(toPhoneE164, templateName, languageCode, bodyPreview, java.util.List.of(), false);
+			this(toPhoneE164, templateName, languageCode, bodyPreview, java.util.List.of(), false, null, null);
+		}
+
+		public WhatsAppMessage(
+				String toPhoneE164,
+				String templateName,
+				String languageCode,
+				String bodyPreview,
+				java.util.List<String> templateParams,
+				boolean sessionMessage) {
+			this(toPhoneE164, templateName, languageCode, bodyPreview, templateParams, sessionMessage, null, null);
 		}
 	}
 

@@ -1311,10 +1311,22 @@ export default function ClinicOperationsStation() {
 
     setWaSending(true);
     try {
-      await sendWhatsApp({
-        to: formattedPhone,
-        body: msg,
-      });
+      const ownerName = client?.displayName || "Pet Parent";
+      if (inv?.id) {
+        await sendWhatsApp({
+          to: formattedPhone,
+          template: "INVOICE_PDF",
+          templateParams: [ownerName],
+          invoiceId: inv.id,
+          body: msg,
+        });
+      } else {
+        await sendWhatsApp({
+          to: formattedPhone,
+          body: msg,
+          sessionMessage: true,
+        });
+      }
       notifySuccess(`⚡ Invoice #${invNumber} sent to +${formattedPhone} via Meta WhatsApp Cloud API!`);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);

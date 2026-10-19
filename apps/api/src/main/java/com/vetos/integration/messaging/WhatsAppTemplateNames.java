@@ -14,6 +14,8 @@ public final class WhatsAppTemplateNames {
 			return "hello_world";
 		}
 		return switch (key.toUpperCase()) {
+			case "INVOICE_PDF" -> "invoice_pdf_alert";
+			case "INVOICE_ALERT" -> "invoice_alert";
 			case "APPOINTMENT_REMINDER" -> "appointment_reminder";
 			case "VAX_REMINDER" -> "vax_due";
 			case "DEWORM_REMINDER" -> "deworm_due";
