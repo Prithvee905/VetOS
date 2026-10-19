@@ -26,6 +26,12 @@ public class ReminderController {
 		this.authorizationSupport = authorizationSupport;
 	}
 
+	@GetMapping("/reminders/settings")
+	public ReminderSettingsResponse reminderSettings(@AuthenticationPrincipal VetosAuthentication authentication) {
+		authorizationSupport.requirePermission(authentication, "COMMUNICATION_SEND");
+		return new ReminderSettingsResponse(reminderService.isDailyRemindersEnabled());
+	}
+
 	@PostMapping("/reminders/trigger")
 	public ReminderService.ReminderRunSummary triggerReminders(
 			@AuthenticationPrincipal VetosAuthentication authentication,
@@ -60,6 +66,9 @@ public class ReminderController {
 						body.customMessage(),
 						body.recipientClientIds()),
 				RequestIds.from(request));
+	}
+
+	public record ReminderSettingsResponse(boolean dailyRemindersEnabled) {
 	}
 
 }

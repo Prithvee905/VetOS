@@ -71,7 +71,7 @@ public class ConfigurableWhatsAppClient implements WhatsAppClient {
 		}
 		else {
 			String metaName = WhatsAppTemplateNames.toMetaTemplateName(message.templateName());
-			String lang = StringUtils.hasText(message.languageCode()) ? message.languageCode() : "en";
+			String lang = resolveTemplateLanguage(metaName, message.languageCode());
 			List<String> params = message.templateParams() == null ? List.of() : message.templateParams();
 			if (params.isEmpty() && StringUtils.hasText(message.bodyPreview())) {
 				params = fallbackParamsFromBody(metaName, message.bodyPreview());
@@ -124,6 +124,16 @@ public class ConfigurableWhatsAppClient implements WhatsAppClient {
 			log.error("Failed to send WhatsApp message to {}: {}", cleanPhone, ex.getMessage(), ex);
 			throw ex;
 		}
+	}
+
+	private static String resolveTemplateLanguage(String metaName, String requested) {
+		if ("hello_world".equals(metaName)) {
+			return "en_US";
+		}
+		if ("invoice_pdf_alert".equals(metaName) || "invoice_alert".equals(metaName)) {
+			return "en";
+		}
+		return StringUtils.hasText(requested) ? requested : "en";
 	}
 
 	private static String normalizePhone(String raw) {

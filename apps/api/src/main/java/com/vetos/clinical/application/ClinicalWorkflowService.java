@@ -527,13 +527,15 @@ public class ClinicalWorkflowService {
 
 		UUID clientId = request.clientId();
 		if (clientId == null) {
-			clientId = jdbcTemplate.queryForObject("select id from clients where clinic_id = ? order by created_at limit 1", UUID.class, clinicId);
+			throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "clientId is required for standalone invoices.");
 		}
+		getClient(clinicId, clientId);
 
 		UUID patientId = request.patientId();
 		if (patientId == null) {
-			patientId = jdbcTemplate.queryForObject("select id from patients where clinic_id = ? order by created_at limit 1", UUID.class, clinicId);
+			throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "patientId is required for standalone invoices.");
 		}
+		getPatient(clinicId, patientId);
 
 		BigDecimal subtotal = BigDecimal.ZERO;
 		BigDecimal taxTotal = BigDecimal.ZERO;

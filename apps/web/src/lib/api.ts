@@ -61,13 +61,9 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Re
     return await fetch(url, { ...init, signal: controller.signal });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(
-        "Cannot reach the VetOS API (timed out). Restart Docker Desktop, then run: docker compose up --build",
-      );
+      throw new Error("Cannot reach the server (timed out). Check your connection and try again.");
     }
-    throw new Error(
-      "Cannot reach the VetOS API. Restart Docker Desktop, then run: docker compose up --build",
-    );
+    throw new Error("Cannot reach the server. Check your connection and try again.");
   } finally {
     clearTimeout(timeout);
   }
@@ -1026,6 +1022,14 @@ export type BroadcastResultDto = {
 
 export async function triggerReminders(): Promise<ReminderRunSummary> {
   return apiJson<ReminderRunSummary>("/api/v1/reminders/trigger", { method: "POST" });
+}
+
+export type ReminderSettings = {
+  dailyRemindersEnabled: boolean;
+};
+
+export async function getReminderSettings(): Promise<ReminderSettings> {
+  return apiJson<ReminderSettings>("/api/v1/reminders/settings");
 }
 
 export async function getReminderCohorts(): Promise<ReminderCohortsDto> {

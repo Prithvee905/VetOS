@@ -8,6 +8,7 @@ import {
   sendEmail,
   sendWhatsApp,
   triggerReminders,
+  getReminderSettings,
   getReminderCohorts,
   broadcastToCohort,
   listClients,
@@ -37,8 +38,17 @@ import {
   Filter,
   Check,
 } from "lucide-react";
+import { formatIndianWhatsAppPhone } from "@/lib/whatsapp-phone";
 
 type CampaignTab = "FOLLOWUPS" | "VACCINES" | "DEWORMING" | "LAPSED" | "ANNOUNCEMENTS" | "DIRECT";
+
+function normalizeWhatsAppTo(raw: string): string {
+  const formatted = formatIndianWhatsAppPhone(raw);
+  if (!formatted) {
+    throw new Error("Enter a valid 10-digit mobile number.");
+  }
+  return formatted;
+}
 
 export default function CommunicationsHubPage() {
   const queryClient = useQueryClient();
@@ -49,8 +59,8 @@ export default function CommunicationsHubPage() {
   // Direct dispatch states
   const [selectedClientPatientId, setSelectedClientPatientId] = useState("");
   const [waPhone, setWaPhone] = useState("");
-  const [waTemplate, setWaTemplate] = useState("CLINIC_UPDATE");
-  const [waBody, setWaBody] = useState("Hello! This is a message from your veterinary clinic regarding your upcoming visit.");
+  const [waTemplate, setWaTemplate] = useState("hello_world");
+  const [waBody, setWaBody] = useState("Hello from your veterinary clinic.");
 
   const [emailTo, setEmailTo] = useState("");
   const [emailSubject, setEmailSubject] = useState("Veterinary Care Follow-up - VetOS Clinic");
@@ -71,11 +81,18 @@ export default function CommunicationsHubPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Queries
+  const reminderSettingsQuery = useQuery({
+    queryKey: ["reminder-settings"],
+    queryFn: getReminderSettings,
+  });
+
   const cohortsQuery = useQuery({
     queryKey: ["reminder-cohorts"],
     queryFn: getReminderCohorts,
     refetchInterval: 15_000,
   });
+
+  const dailyRemindersEnabled = reminderSettingsQuery.data?.dailyRemindersEnabled ?? false;
 
   const clientsQuery = useQuery({
     queryKey: ["clients"],
@@ -150,10 +167,17 @@ export default function CommunicationsHubPage() {
 
   function queueCloudWhatsApp(to: string, body: string, template?: string) {
     queueWhatsAppQuickMutation.mutate({
-      to,
-      template: template ?? templateForTab(activeTab),
+      to: normalizeWhatsAppTo(to),
+      template: template ?? effectiveTemplateForTab(activeTab),
       body,
     });
+  }
+
+  function effectiveTemplateForTab(tab: CampaignTab): string {
+    if (!dailyRemindersEnabled) {
+      return "hello_world";
+    }
+    return templateForTab(tab);
   }
 
   function templateForTab(tab: CampaignTab): string {
@@ -174,9 +198,14 @@ export default function CommunicationsHubPage() {
 
   // Mutations
   const sendWhatsAppMutation = useMutation({
-    mutationFn: () => sendWhatsApp({ to: waPhone, template: waTemplate, body: waBody }),
+    mutationFn: () =>
+      sendWhatsApp({
+        to: normalizeWhatsAppTo(waPhone),
+        template: waTemplate,
+        body: waBody,
+      }),
     onSuccess: async () => {
-      setMessage(`WhatsApp message dispatched to ${waPhone} and queued to outbox.`);
+      setMessage(`WhatsApp message queued for +${normalizeWhatsAppTo(waPhone)}. Check the outbox below for delivery status.`);
       setError(null);
       await queryClient.invalidateQueries({ queryKey: ["outbox-events"] });
     },
@@ -185,7 +214,11 @@ export default function CommunicationsHubPage() {
 
   const queueWhatsAppQuickMutation = useMutation({
     mutationFn: (params: { to: string; template: string; body: string }) =>
-      sendWhatsApp({ to: params.to, template: params.template, body: params.body }),
+      sendWhatsApp({
+        to: normalizeWhatsAppTo(params.to),
+        template: params.template,
+        body: params.body,
+      }),
     onSuccess: async () => {
       setMessage("Message queued to outbox — Meta Cloud API will send shortly.");
       setError(null);
@@ -238,9 +271,19 @@ export default function CommunicationsHubPage() {
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-bold text-slate-900">Patient Relationship Management & Broadcast Hub</h2>
-            <span className="rounded-full bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 text-[10px] font-bold text-emerald-800 flex items-center gap-1">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-pulse" />
-              Automated Daily 09:00 AM Engine Active
+            <span
+              className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold flex items-center gap-1 ${
+                dailyRemindersEnabled
+                  ? "bg-emerald-100 border-emerald-300 text-emerald-800"
+                  : "bg-amber-100 border-amber-300 text-amber-900"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${dailyRemindersEnabled ? "bg-emerald-600 animate-pulse" : "bg-amber-600"}`}
+              />
+              {dailyRemindersEnabled
+                ? "Daily PRM engine enabled (09:00 server time)"
+                : "PRM engine off — use hello_world until Meta templates are Active"}
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
@@ -253,7 +296,12 @@ export default function CommunicationsHubPage() {
             size="sm"
             className="bg-teal-700 hover:bg-teal-800 text-white font-semibold flex items-center gap-1.5 shadow-sm"
             onClick={() => triggerRemindersMutation.mutate()}
-            disabled={triggerRemindersMutation.isPending}
+            disabled={triggerRemindersMutation.isPending || !dailyRemindersEnabled}
+            title={
+              dailyRemindersEnabled
+                ? "Run appointment, vaccine, and follow-up reminder scan now"
+                : "Enable VETOS_REMINDERS_DAILY_ENABLED after Meta templates are approved"
+            }
           >
             <Sparkles className="h-4 w-4" />
             <span>{triggerRemindersMutation.isPending ? "Scanning..." : "⚡ Run Automated Daily PRM Engine"}</span>
@@ -270,6 +318,12 @@ export default function CommunicationsHubPage() {
             Refresh
           </Button>
         </div>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+        Invoice PDFs use the Active template <strong>invoice_pdf_alert</strong> from Clinic POS. Campaign and reminder
+        templates must be <strong>Active</strong> in Meta before enabling the PRM engine. Until then, send tests with{" "}
+        <strong>hello_world</strong> in Direct Message.
       </div>
 
       {message && (
@@ -473,8 +527,9 @@ export default function CommunicationsHubPage() {
                     value={waTemplate}
                     onChange={(e) => setWaTemplate(e.target.value)}
                   >
-                    <option value="hello_world">hello_world (Meta test — use while templates are in review)</option>
-                    <option value="CLINIC_UPDATE">CLINIC_UPDATE (General Note → campaign_notice)</option>
+                    <option value="hello_world">hello_world (recommended until custom templates are Active)</option>
+                    <option value="INVOICE_PDF">INVOICE_PDF (clinic POS only — requires invoice id)</option>
+                    <option value="CLINIC_UPDATE">CLINIC_UPDATE (→ campaign_notice, must be Active in Meta)</option>
                     <option value="FOLLOWUP_REMINDER">FOLLOWUP_REMINDER (Clinical Follow-up)</option>
                     <option value="VAX_REMINDER">VAX_REMINDER (Vaccine Due)</option>
                     <option value="DEWORM_REMINDER">DEWORM_REMINDER (Parasite Prevention)</option>
@@ -499,7 +554,7 @@ export default function CommunicationsHubPage() {
                     disabled={!waPhone || sendWhatsAppMutation.isPending}
                   >
                     <Send className="h-3.5 w-3.5 mr-1" />
-                    {sendWhatsAppMutation.isPending ? "Dispatching via Meta API…" : "⚡ Send via WhatsApp Cloud API (Automated)"}
+                    {sendWhatsAppMutation.isPending ? "Queuing…" : "Queue WhatsApp message"}
                   </Button>
                   <p className="text-[11px] text-slate-500 text-center">
                     Queued on the server and sent via Meta WhatsApp Cloud API. Check the outbox table below for status.
@@ -582,7 +637,7 @@ export default function CommunicationsHubPage() {
                         onClick={() =>
                           queueWhatsAppQuickMutation.mutate({
                             to: opt.phone,
-                            template: waTemplate,
+                            template: effectiveTemplateForTab(activeTab),
                             body: `Hello ${opt.ownerName}, warm greetings from ${clinicName} regarding your pet ${opt.petName}.`,
                           })
                         }
@@ -650,8 +705,21 @@ export default function CommunicationsHubPage() {
 
             <Button
               className="bg-teal-700 hover:bg-teal-800 text-white font-bold py-2.5 text-xs shadow-sm flex items-center justify-center gap-1.5"
-              disabled={broadcastMutation.isPending}
+              disabled={broadcastMutation.isPending || !dailyRemindersEnabled}
               onClick={() => {
+                if (!dailyRemindersEnabled) {
+                  setError(
+                    "Enable VETOS_REMINDERS_DAILY_ENABLED after campaign_notice and reminder templates are Active in Meta."
+                  );
+                  return;
+                }
+                if (
+                  !window.confirm(
+                    "Send this cohort via WhatsApp template campaign_notice? Recipients without consent or phone will be skipped."
+                  )
+                ) {
+                  return;
+                }
                 const cohortMap: Record<string, BroadcastPayload["cohort"]> = {
                   FOLLOWUPS: "FOLLOWUPS_7D",
                   VACCINES: "VAX_7D",
@@ -667,13 +735,11 @@ export default function CommunicationsHubPage() {
             >
               <Send className="h-4 w-4" />
               <span>
-                {broadcastMutation.isPending
-                  ? "Broadcasting via Meta API…"
-                  : `⚡ Broadcast via WhatsApp Cloud API (Automated)`}
+                {broadcastMutation.isPending ? "Queuing cohort…" : "Queue cohort broadcast"}
               </span>
             </Button>
             <p className="text-[11px] text-slate-500 text-center">
-              Sent automatically in the background via official Meta WhatsApp Cloud API.
+              Messages are queued on the server; delivery status appears in the outbox below.
             </p>
           </div>
 

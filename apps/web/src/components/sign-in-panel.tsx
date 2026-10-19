@@ -36,10 +36,6 @@ export function SignInPanel() {
         <h1 className="text-3xl font-semibold tracking-tight">VetOS</h1>
       </div>
       <p className="text-slate-600">Sign in with your clinic account.</p>
-      <p className="text-sm text-slate-500">
-        Dev stack (after <code className="text-xs">docker compose up</code>):{" "}
-        <span className="font-mono">owner@clinic.test</span> / <span className="font-mono">change-me-now</span>
-      </p>
       {error ? <p className="text-sm text-rose-700">{error}</p> : null}
       {form.formState.errors.email ? (
         <p className="text-sm text-rose-700">{form.formState.errors.email.message}</p>

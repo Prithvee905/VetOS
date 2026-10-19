@@ -6,9 +6,11 @@ import com.vetos.platform.ids.UuidV7;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import com.vetos.platform.api.ApiException;
 import com.vetos.platform.infrastructure.RedisDistributedLock;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -71,7 +73,17 @@ public class ReminderService {
 		}
 	}
 
+	public boolean isDailyRemindersEnabled() {
+		return dailyRemindersEnabled;
+	}
+
 	public ReminderRunSummary triggerReminders(UUID clinicId, UUID actorId, String requestId) {
+		if (!dailyRemindersEnabled) {
+			throw new ApiException(
+					HttpStatus.SERVICE_UNAVAILABLE,
+					"REMINDERS_DISABLED",
+					"Automated reminders are disabled. Approve Meta WhatsApp templates, then set VETOS_REMINDERS_DAILY_ENABLED=true.");
+		}
 		int apptCount = 0;
 		int vaxCount = 0;
 		int dewormCount = 0;

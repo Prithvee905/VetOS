@@ -66,6 +66,7 @@ import {
   STANDARD_VETERINARY_MEDICINES,
   PRESCRIPTION_CLINICAL_PACKS,
 } from "@/lib/clinical-constants";
+import { resolveInvoiceWhatsAppPhone } from "@/lib/whatsapp-phone";
 
 type ActiveTab = "queue" | "appointments" | "soap" | "pos" | "register";
 
@@ -107,22 +108,6 @@ type CompletedPaymentReceipt = {
   dateStr: string;
   lines: { description: string; quantity: number; unitPrice: number; total: number }[];
 };
-
-function formatIndianWhatsAppPhone(raw: string): string | null {
-  const clean = raw.replace(/\D/g, "");
-  if (clean.length < 10) {
-    return null;
-  }
-  if (clean.length === 10) {
-    return `91${clean}`;
-  }
-  return clean;
-}
-
-function resolveInvoiceWhatsAppPhone(customPhone: string, clientPhone?: string | null): string | null {
-  const raw = customPhone.trim() || (clientPhone?.trim() ?? "");
-  return formatIndianWhatsAppPhone(raw);
-}
 
 export default function ClinicOperationsStation() {
   const queryClient = useQueryClient();
@@ -487,11 +472,16 @@ export default function ClinicOperationsStation() {
   const [invoiceCustomPhone, setInvoiceCustomPhone] = useState<string>("");
 
   useEffect(() => {
+    if (!basketClientId) {
+      return;
+    }
     const client = clients.data?.find((c) => c.id === basketClientId);
     if (client?.phone) {
       const digits = client.phone.replace(/\D/g, "");
       const ten = digits.length >= 10 ? digits.slice(-10) : digits;
-      setInvoiceCustomPhone((prev) => (prev.trim() === "" ? ten : prev));
+      setInvoiceCustomPhone(ten);
+    } else {
+      setInvoiceCustomPhone("");
     }
   }, [basketClientId, clients.data]);
 
