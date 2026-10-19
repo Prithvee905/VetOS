@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-10-02.
+Last updated: 2026-10-18.
 
 ## Foundation (phase 0 and 1)
 
@@ -34,7 +34,7 @@ Last updated: 2026-10-02.
 | Leads, vaccinations, products, exports API | Done | `PlatformControllers`, `PlatformSmokeTest` |
 | Branch create | Done | `POST /api/v1/branches` |
 | Swagger UI | Done | `/swagger-ui.html` |
-| Async comms / S3 / full UI per module | Not done | `docs/product-scope.md` |
+| Async comms / S3 / full UI per module | Largely done | V12: notifications, refunds, campaigns, offline batch API, production gates, exports UI |
 
 ## How to verify locally
 

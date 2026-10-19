@@ -4,7 +4,7 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "vetos")
-public record VetosProperties(Jwt jwt, Security security, Cors cors, Dev dev, Workers workers, Storage storage, WhatsApp whatsApp, Email email, Platform platform) {
+public record VetosProperties(Jwt jwt, Security security, Cors cors, Dev dev, Workers workers, Storage storage, WhatsApp whatsApp, Email email, Platform platform, Redis redis) {
 
 	public VetosProperties {
 		if (jwt == null) {
@@ -23,7 +23,7 @@ public record VetosProperties(Jwt jwt, Security security, Cors cors, Dev dev, Wo
 			workers = new Workers(true);
 		}
 		if (storage == null) {
-			storage = new Storage("local", "./.vetos-blobs", null, null);
+			storage = new Storage("local", "./.vetos-blobs", null, null, null, null, null);
 		}
 		if (whatsApp == null) {
 			whatsApp = new WhatsApp("", "", "");
@@ -33,6 +33,9 @@ public record VetosProperties(Jwt jwt, Security security, Cors cors, Dev dev, Wo
 		}
 		if (platform == null) {
 			platform = new Platform("vetos-platform-admin-secret-change-me");
+		}
+		if (redis == null) {
+			redis = new Redis(false);
 		}
 	}
 
@@ -51,7 +54,10 @@ public record VetosProperties(Jwt jwt, Security security, Cors cors, Dev dev, Wo
 	public record Workers(boolean enabled) {
 	}
 
-	public record Storage(String type, String localBasePath, String s3Bucket, String s3Region) {
+	public record Storage(String type, String localBasePath, String s3Bucket, String s3Region, String s3Endpoint, String s3AccessKey, String s3SecretKey) {
+	}
+
+	public record Redis(boolean enabled) {
 	}
 
 	public record WhatsApp(String apiBaseUrl, String verifyToken, String accessToken) {

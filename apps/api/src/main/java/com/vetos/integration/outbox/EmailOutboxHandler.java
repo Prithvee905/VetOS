@@ -23,7 +23,7 @@ public class EmailOutboxHandler implements OutboxHandler {
 	}
 
 	@Override
-	public void handle(UUID clinicId, String payloadJson) throws Exception {
+	public void handle(UUID clinicId, UUID outboxEventId, String payloadJson) throws Exception {
 		JsonNode root = objectMapper.readTree(payloadJson);
 		emailClient.send(new EmailClient.EmailMessage(
 				root.get("to").asText(),

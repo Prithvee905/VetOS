@@ -3,6 +3,7 @@ package com.vetos.clinical.application;
 import com.vetos.audit.application.AuditRecorder;
 import com.vetos.clinic.infrastructure.ClinicRepository;
 import com.vetos.platform.api.ApiException;
+import com.vetos.platform.application.NotificationService;
 import com.vetos.platform.ids.UuidV7;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -24,11 +25,17 @@ public class ClinicalWorkflowService {
 	private final JdbcTemplate jdbcTemplate;
 	private final ClinicRepository clinicRepository;
 	private final AuditRecorder auditRecorder;
+	private final NotificationService notificationService;
 
-	public ClinicalWorkflowService(JdbcTemplate jdbcTemplate, ClinicRepository clinicRepository, AuditRecorder auditRecorder) {
+	public ClinicalWorkflowService(
+			JdbcTemplate jdbcTemplate,
+			ClinicRepository clinicRepository,
+			AuditRecorder auditRecorder,
+			NotificationService notificationService) {
 		this.jdbcTemplate = jdbcTemplate;
 		this.clinicRepository = clinicRepository;
 		this.auditRecorder = auditRecorder;
+		this.notificationService = notificationService;
 	}
 
 	public ClientResponse createClient(UUID clinicId, UUID actorId, ClientCreateRequest request, String requestId) {
@@ -1032,6 +1039,90 @@ public class ClinicalWorkflowService {
 		return rows.getFirst();
 	}
 
+	public List<PaymentResponse> listRecentPayments(UUID clinicId, int limit) {
+		int safeLimit = Math.min(Math.max(limit, 1), 100);
+		return jdbcTemplate.query("""
+				select id, invoice_id, method, amount, status, reference, idempotency_key, paid_at
+				from payments where clinic_id = ? and status in ('SUCCEEDED', 'REFUNDED')
+				order by paid_at desc nulls last limit ?
+				""",
+				paymentMapper(),
+				clinicId,
+				safeLimit);
+	}
+
+	public RefundResponse issueRefund(
+			UUID clinicId,
+			UUID actorId,
+			UUID paymentId,
+			RefundRequest request,
+			String idempotencyKey,
+			String requestId) {
+		List<RefundResponse> existing = jdbcTemplate.query("""
+				select id, payment_id, amount, reason, status, created_at
+				from payment_refunds where clinic_id = ? and idempotency_key = ?
+				""",
+				(rs, rowNum) -> new RefundResponse(
+						rs.getObject("id", UUID.class),
+						rs.getObject("payment_id", UUID.class),
+						rs.getBigDecimal("amount"),
+						rs.getString("reason"),
+						rs.getString("status"),
+						rs.getTimestamp("created_at").toInstant()),
+				clinicId,
+				idempotencyKey);
+		if (!existing.isEmpty()) {
+			return existing.getFirst();
+		}
+
+		PaymentResponse payment = getPayment(clinicId, paymentId);
+		if (!"SUCCEEDED".equals(payment.status())) {
+			throw ApiException.conflict("Only succeeded payments can be refunded.");
+		}
+		BigDecimal refundAmount = request.amount() == null ? payment.amount() : request.amount();
+		if (refundAmount.compareTo(BigDecimal.ZERO) <= 0 || refundAmount.compareTo(payment.amount()) > 0) {
+			throw ApiException.badRequest("Invalid refund amount.");
+		}
+
+		UUID refundId = UuidV7.generate();
+		Instant now = Instant.now();
+		jdbcTemplate.update("""
+				insert into payment_refunds (id, clinic_id, payment_id, amount, reason, status, idempotency_key, created_by, created_at)
+				values (?, ?, ?, ?, ?, 'COMPLETED', ?, ?, ?)
+				""",
+				refundId,
+				clinicId,
+				paymentId,
+				refundAmount,
+				request.reason(),
+				idempotencyKey,
+				actorId,
+				Timestamp.from(now));
+
+		String paymentStatus = refundAmount.compareTo(payment.amount()) >= 0 ? "REFUNDED" : "SUCCEEDED";
+		jdbcTemplate.update("""
+				update payments set status = ? where clinic_id = ? and id = ?
+				""", paymentStatus, clinicId, paymentId);
+
+		InvoiceResponse invoice = getInvoice(clinicId, payment.invoiceId());
+		BigDecimal newPaid = invoice.amountPaid().subtract(refundAmount).max(BigDecimal.ZERO);
+		String invoiceStatus = newPaid.compareTo(BigDecimal.ZERO) <= 0 ? "ISSUED" : (newPaid.compareTo(invoice.total()) >= 0 ? "PAID" : "PARTIALLY_PAID");
+		jdbcTemplate.update("""
+				update invoices set amount_paid = ?, status = ?, updated_at = ? where clinic_id = ? and id = ?
+				""",
+				newPaid,
+				invoiceStatus,
+				Timestamp.from(now),
+				clinicId,
+				invoice.id());
+
+		auditRecorder.record(clinicId, actorId, "REFUND", "payment_refund", refundId, requestId);
+		notificationService.notifyOwners(clinicId, "Payment refunded",
+				"Refund of " + refundAmount + " recorded for invoice payment.", "REFUND");
+
+		return new RefundResponse(refundId, paymentId, refundAmount, request.reason(), "COMPLETED", now);
+	}
+
 	public QueueEntryResponse getQueueEntry(UUID clinicId, UUID queueId) {
 		List<QueueEntryResponse> rows = jdbcTemplate.query("""
 				select id, branch_id, appointment_id, patient_id, doctor_user_id, token_number, priority, status, checked_in_at, version
@@ -1455,6 +1546,12 @@ public class ClinicalWorkflowService {
 			String notes,
 			String medicines,
 			Instant createdAt) {
+	}
+
+	public record RefundRequest(BigDecimal amount, String reason) {
+	}
+
+	public record RefundResponse(UUID id, UUID paymentId, BigDecimal amount, String reason, String status, Instant createdAt) {
 	}
 
 	public record PaymentResponse(UUID id, UUID invoiceId, String method, BigDecimal amount, String status, String reference, String idempotencyKey, Instant paidAt) {

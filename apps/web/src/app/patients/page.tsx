@@ -21,6 +21,7 @@ import {
   type ClientRow,
   type PatientTimeline,
   currentUser,
+  copilotAdvise,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { RecordSoapModal } from "@/components/record-soap-modal";
@@ -39,6 +40,7 @@ export default function PatientsPage() {
   const isDoctorOrOwner = session.data?.roles.some((r) => ["OWNER", "DOCTOR"].includes(r)) ?? false;
 
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(initialPatientId);
+  const [copilotTips, setCopilotTips] = useState<string[] | null>(null);
   const [filterQuery, setFilterQuery] = useState("");
   const [showNewOwnerModal, setShowNewOwnerModal] = useState(false);
   const [showNewPetModal, setShowNewPetModal] = useState(false);
@@ -402,6 +404,17 @@ export default function PatientsPage() {
                 </div>
               )}
 
+              {copilotTips && copilotTips.length > 0 && (
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50/80 p-3 text-xs text-indigo-900">
+                  <p className="font-bold mb-1">VetOS Copilot (advisory)</p>
+                  <ul className="list-disc pl-4 space-y-0.5">
+                    {copilotTips.map((tip) => (
+                      <li key={tip}>{tip}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {/* Patient Banner */}
               <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-4">
@@ -447,6 +460,19 @@ export default function PatientsPage() {
                     >
                       ⚡ Check into Queue
                     </Button>
+                    {isDoctorOrOwner && selectedPatientId && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          const res = await copilotAdvise(selectedPatientId);
+                          setCopilotTips(res.suggestions);
+                        }}
+                      >
+                        Copilot advise
+                      </Button>
+                    )}
                     {isDoctorOrOwner && (
                       <Button
                         type="button"

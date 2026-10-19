@@ -1,7 +1,12 @@
 package com.vetos.integration.messaging;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.vetos.platform.config.VetosProperties;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,49 +31,66 @@ public class ConfigurableWhatsAppClient implements WhatsAppClient {
 	}
 
 	@Override
-	public void sendTemplateMessage(WhatsAppMessage message) {
+	public WhatsAppSendResult sendTemplateMessage(WhatsAppMessage message) {
 		String baseUrl = properties.whatsApp().apiBaseUrl();
 		if (!StringUtils.hasText(baseUrl)) {
 			log.info("WhatsApp stub send to={} template={} preview={}", message.toPhoneE164(), message.templateName(), message.bodyPreview());
-			return;
+			return new WhatsAppSendResult(null);
 		}
 		String accessToken = properties.whatsApp().accessToken();
 		if (!StringUtils.hasText(accessToken)) {
 			log.warn("WhatsApp access token not configured, skipping send to={}", message.toPhoneE164());
-			return;
+			return new WhatsAppSendResult(null);
 		}
 
-		String cleanPhone = message.toPhoneE164() != null ? message.toPhoneE164().replaceAll("[^0-9]", "") : "";
-		if (cleanPhone.length() == 10) {
-			cleanPhone = "91" + cleanPhone;
-		}
-
+		String cleanPhone = normalizePhone(message.toPhoneE164());
 		if (cleanPhone.isBlank()) {
 			log.warn("Cannot send WhatsApp message: recipient phone is empty.");
-			return;
+			return new WhatsAppSendResult(null);
 		}
 
-		Map<String, Object> body;
-		if ("hello_world".equalsIgnoreCase(message.templateName())) {
-			body = Map.of(
-					"messaging_product", "whatsapp",
-					"to", cleanPhone,
-					"type", "template",
-					"template", Map.of(
-							"name", "hello_world",
-							"language", Map.of("code", "en_US")));
-		} else {
+		ObjectNode body = objectMapper.createObjectNode();
+		body.put("messaging_product", "whatsapp");
+		body.put("to", cleanPhone);
+
+		if (message.sessionMessage()) {
 			String textContent = StringUtils.hasText(message.bodyPreview())
 					? message.bodyPreview()
-					: "🐾 VetOS Clinic Alert: Follow-up update regarding your pet.";
-			body = Map.of(
-					"messaging_product", "whatsapp",
-					"recipient_type", "individual",
-					"to", cleanPhone,
-					"type", "text",
-					"text", Map.of(
-							"preview_url", false,
-							"body", textContent));
+					: "VetOS clinic update regarding your pet.";
+			body.put("type", "text");
+			ObjectNode text = body.putObject("text");
+			text.put("preview_url", false);
+			text.put("body", textContent);
+		}
+		else if ("hello_world".equalsIgnoreCase(message.templateName())
+				|| "hello_world".equalsIgnoreCase(WhatsAppTemplateNames.toMetaTemplateName(message.templateName()))) {
+			body.put("type", "template");
+			ObjectNode template = body.putObject("template");
+			template.put("name", "hello_world");
+			template.putObject("language").put("code", "en_US");
+		}
+		else {
+			String metaName = WhatsAppTemplateNames.toMetaTemplateName(message.templateName());
+			String lang = StringUtils.hasText(message.languageCode()) ? message.languageCode() : "en";
+			List<String> params = message.templateParams() == null ? List.of() : message.templateParams();
+			if (params.isEmpty() && StringUtils.hasText(message.bodyPreview())) {
+				params = fallbackParamsFromBody(metaName, message.bodyPreview());
+			}
+			body.put("type", "template");
+			ObjectNode template = body.putObject("template");
+			template.put("name", metaName);
+			template.putObject("language").put("code", lang);
+			if (!params.isEmpty()) {
+				ArrayNode componentsArray = template.putArray("components");
+				ObjectNode bodyComponent = componentsArray.addObject();
+				bodyComponent.put("type", "body");
+				ArrayNode parameters = bodyComponent.putArray("parameters");
+				for (String param : params) {
+					ObjectNode p = parameters.addObject();
+					p.put("type", "text");
+					p.put("text", param == null ? "" : param);
+				}
+			}
 		}
 
 		try {
@@ -76,14 +98,54 @@ public class ConfigurableWhatsAppClient implements WhatsAppClient {
 					.uri(baseUrl)
 					.contentType(MediaType.APPLICATION_JSON)
 					.header("Authorization", "Bearer " + accessToken)
-					.body(objectMapper.valueToTree(body).toString())
+					.body(body.toString())
 					.retrieve()
 					.body(String.class);
-			log.info("WhatsApp message successfully dispatched to {}! Meta response: {}", cleanPhone, response);
-		} catch (Exception ex) {
+			log.info("WhatsApp message dispatched to {} template={} meta response: {}", cleanPhone, message.templateName(), response);
+			return new WhatsAppSendResult(extractMessageId(response));
+		}
+		catch (Exception ex) {
 			log.error("Failed to send WhatsApp message to {}: {}", cleanPhone, ex.getMessage(), ex);
 			throw ex;
 		}
+	}
+
+	private static String normalizePhone(String raw) {
+		String cleanPhone = raw != null ? raw.replaceAll("[^0-9]", "") : "";
+		if (cleanPhone.length() == 10) {
+			cleanPhone = "91" + cleanPhone;
+		}
+		return cleanPhone;
+	}
+
+	private List<String> fallbackParamsFromBody(String metaName, String bodyPreview) {
+		List<String> params = new ArrayList<>();
+		params.add("Pet Parent");
+		if ("campaign_notice".equals(metaName)) {
+			params.add("VetOS Clinic");
+			params.add(bodyPreview.length() > 120 ? bodyPreview.substring(0, 120) : bodyPreview);
+		}
+		else {
+			params.add("your pet");
+			params.add(bodyPreview.length() > 80 ? bodyPreview.substring(0, 80) : bodyPreview);
+		}
+		return params;
+	}
+
+	private String extractMessageId(String responseJson) {
+		if (!StringUtils.hasText(responseJson)) {
+			return null;
+		}
+		try {
+			JsonNode root = objectMapper.readTree(responseJson);
+			JsonNode messages = root.path("messages");
+			if (messages.isArray() && !messages.isEmpty()) {
+				return messages.get(0).path("id").asText(null);
+			}
+		}
+		catch (Exception ignored) {
+		}
+		return null;
 	}
 
 }

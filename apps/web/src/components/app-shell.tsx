@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { currentUser, logout, searchGlobal, listBranches, type SessionUser, type SearchResults, type Branch } from "@/lib/api";
+import { NotificationBell } from "@/components/notification-bell";
 
 type NavLink = {
   href: string;
@@ -29,7 +30,9 @@ const links: NavLink[] = [
 const settingsSubLinks = [
   { href: "/settings/clinic", label: "Clinic Profile" },
   { href: "/settings/services", label: "Services Catalog" },
+  { href: "/settings/exports", label: "Data Exports" },
   { href: "/settings/audit", label: "Audit Trail" },
+  { href: "/settings/production", label: "Production Gates" },
   { href: "/settings/users", label: "Users & Staff" },
 ];
 
@@ -199,6 +202,8 @@ export function AppShell({ children, title }: { children: React.ReactNode; title
               </span>
             )}
           </div>
+
+          <NotificationBell />
 
           {/* Omni-Search */}
           <div ref={searchRef} className="relative w-64 sm:w-72">

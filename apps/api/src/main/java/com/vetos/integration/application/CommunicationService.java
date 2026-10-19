@@ -24,11 +24,16 @@ public class CommunicationService {
 	}
 
 	public void queueWhatsApp(UUID clinicId, WhatsAppRequest request) {
-		platformExpansionService.enqueueOutbox(clinicId, "WHATSAPP_MESSAGE", toJson(Map.of(
-				"to", request.to() == null ? "" : request.to(),
-				"template", request.template() == null ? "DEFAULT" : request.template(),
-				"language", request.language() == null ? "en" : request.language(),
-				"body", request.body() == null ? "" : request.body())));
+		java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+		payload.put("to", request.to() == null ? "" : request.to());
+		payload.put("template", request.template() == null ? "DEFAULT" : request.template());
+		payload.put("language", request.language() == null ? "en" : request.language());
+		payload.put("body", request.body() == null ? "" : request.body());
+		payload.put("sessionMessage", request.sessionMessage());
+		if (request.templateParams() != null && !request.templateParams().isEmpty()) {
+			payload.put("templateParams", request.templateParams());
+		}
+		platformExpansionService.enqueueOutbox(clinicId, "WHATSAPP_MESSAGE", toJsonObject(payload));
 	}
 
 	public void queueEmail(UUID clinicId, EmailRequest request) {
@@ -41,7 +46,8 @@ public class CommunicationService {
 	public List<OutboxEventDto> listOutboxEvents(UUID clinicId, int limit) {
 		int safeLimit = Math.min(Math.max(limit, 1), 100);
 		return jdbcTemplate.query("""
-				select id, event_type, status, attempt_count, last_error, created_at, processed_at
+				select id, event_type, status, attempt_count, last_error, created_at, processed_at,
+				       provider_message_id, delivery_status
 				from outbox_events
 				where clinic_id = ?
 				order by created_at desc
@@ -54,7 +60,9 @@ public class CommunicationService {
 						rs.getInt("attempt_count"),
 						rs.getString("last_error"),
 						rs.getTimestamp("created_at").toInstant(),
-						rs.getTimestamp("processed_at") == null ? null : rs.getTimestamp("processed_at").toInstant()),
+						rs.getTimestamp("processed_at") == null ? null : rs.getTimestamp("processed_at").toInstant(),
+						rs.getString("provider_message_id"),
+						rs.getString("delivery_status")),
 				clinicId, safeLimit);
 	}
 
@@ -67,7 +75,37 @@ public class CommunicationService {
 		}
 	}
 
-	public record WhatsAppRequest(String to, String template, String language, String body) {}
+	private String toJsonObject(Map<String, Object> payload) {
+		try {
+			return objectMapper.writeValueAsString(payload);
+		}
+		catch (JsonProcessingException exception) {
+			throw new IllegalArgumentException("Invalid message payload.");
+		}
+	}
+
+	public record WhatsAppRequest(
+			String to,
+			String template,
+			String language,
+			String body,
+			java.util.List<String> templateParams,
+			boolean sessionMessage) {
+
+		public WhatsAppRequest(String to, String template, String language, String body) {
+			this(to, template, language, body, java.util.List.of(), false);
+		}
+	}
 	public record EmailRequest(String to, String subject, String body) {}
-	public record OutboxEventDto(UUID id, String eventType, String status, int attemptCount, String lastError, Instant createdAt, Instant processedAt) {}
+	public record OutboxEventDto(
+			UUID id,
+			String eventType,
+			String status,
+			int attemptCount,
+			String lastError,
+			Instant createdAt,
+			Instant processedAt,
+			String providerMessageId,
+			String deliveryStatus) {
+	}
 }

@@ -12,8 +12,10 @@ VetOS in `docs/implementation-plan.md` is an **18-phase** program (clinic ops �
 | Leads, vaccinations, catalog, inventory, vendors, expenses, export jobs, outbox | **Done (API + schema)** — `V3__platform_expansion.sql` |
 | Lab, surgery, IPD, grooming records | **Done (API + schema)** — same migration |
 | Branch create (owner) | **Done** — `POST /api/v1/branches` |
-| WhatsApp / email delivery, campaign sends | **Stub** — outbox only; no provider workers |
-| S3 files, signed URLs | **Metadata only** — no blob store wired |
+| WhatsApp / email delivery, campaigns | **Code ready** — outbox worker + persisted campaigns with opt-out |
+| S3 / local files | **Local + optional S3** — `LocalBlobStorage` default; `S3BlobStorage` when `vetos.storage.type=s3` |
+| Notifications, refunds, exports UI | **Done** — in-app bell, owner refunds, `/settings/exports` |
+| Redis rate limits / reminder lock | **Optional** — enable with `vetos.redis.enabled=true` |
 | Offline sync, advisory AI, Terraform/ECS | **Not implemented** — architecture in `docs/` only |
 
 ## What “complete product” still requires (your decision + ops)

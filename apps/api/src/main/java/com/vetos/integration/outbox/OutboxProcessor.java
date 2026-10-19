@@ -51,7 +51,7 @@ public class OutboxProcessor {
 					return;
 				}
 				try {
-					handler.handle(event.clinicId(), event.payloadJson());
+					handler.handle(event.clinicId(), event.id(), event.payloadJson());
 					markProcessed(event.id());
 				}
 				catch (Exception exception) {

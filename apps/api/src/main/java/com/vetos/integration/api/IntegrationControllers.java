@@ -6,6 +6,7 @@ import com.vetos.integration.application.CommunicationService;
 import com.vetos.integration.application.FileService;
 import com.vetos.integration.application.WebhookService;
 import com.vetos.integration.storage.BlobStorage;
+import com.vetos.platform.api.ApiException;
 import com.vetos.platform.application.PlatformExpansionService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -60,9 +61,16 @@ public class IntegrationControllers {
 			@AuthenticationPrincipal VetosAuthentication authentication,
 			@Valid @RequestBody WhatsAppBody body) {
 		authorizationSupport.requirePermission(authentication, "COMMUNICATION_SEND");
+		boolean session = Boolean.TRUE.equals(body.sessionMessage());
 		communicationService.queueWhatsApp(
 				authentication.clinicId(),
-				new CommunicationService.WhatsAppRequest(body.to(), body.template(), body.language(), body.body()));
+				new CommunicationService.WhatsAppRequest(
+						body.to(),
+						body.template(),
+						body.language(),
+						body.body(),
+						body.templateParams() == null ? java.util.List.of() : body.templateParams(),
+						session));
 	}
 
 	@PostMapping("/communications/email")
@@ -125,6 +133,31 @@ public class IntegrationControllers {
 		return platformExpansionService.getExportJob(authentication.clinicId(), exportId);
 	}
 
+	@GetMapping("/exports/{exportId}/download")
+	public ResponseEntity<InputStreamResource> downloadExport(
+			@AuthenticationPrincipal VetosAuthentication authentication,
+			@PathVariable UUID exportId) {
+		authorizationSupport.requirePermission(authentication, "EXPORT_REQUEST");
+		PlatformExpansionService.ExportJobDetail job = platformExpansionService.getExportJob(authentication.clinicId(), exportId);
+		if (!"COMPLETED".equals(job.status()) || job.artifactStorageKey() == null) {
+			throw ApiException.conflict("Export is not ready for download.");
+		}
+		UUID fileId = platformExpansionService.findExportDownloadFileId(authentication.clinicId(), exportId);
+		if (fileId != null) {
+			FileService.DownloadTarget target = fileService.downloadTarget(authentication.clinicId(), fileId);
+			InputStream stream = blobStorage.open(authentication.clinicId(), target.storageKey());
+			return ResponseEntity.ok()
+					.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + target.fileName() + "\"")
+					.contentType(MediaType.parseMediaType(target.contentType() == null ? "text/csv" : target.contentType()))
+					.body(new InputStreamResource(stream));
+		}
+		InputStream stream = blobStorage.open(authentication.clinicId(), job.artifactStorageKey());
+		return ResponseEntity.ok()
+				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"export-" + exportId + ".csv\"")
+				.contentType(MediaType.TEXT_PLAIN)
+				.body(new InputStreamResource(stream));
+	}
+
 	@GetMapping("/webhooks/whatsapp")
 	public String verifyWhatsApp(
 			@RequestParam(name = "hub.mode") String mode,
@@ -139,7 +172,13 @@ public class IntegrationControllers {
 		webhookService.ingestWhatsApp(body);
 	}
 
-	public record WhatsAppBody(@NotBlank String to, String template, String language, String body) {
+	public record WhatsAppBody(
+			@NotBlank String to,
+			String template,
+			String language,
+			String body,
+			Boolean sessionMessage,
+			java.util.List<String> templateParams) {
 	}
 
 	public record EmailBody(@NotBlank String to, @NotBlank String subject, @NotBlank String body) {

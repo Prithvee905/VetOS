@@ -53,6 +53,52 @@ public class WebhookService {
 		catch (DuplicateKeyException duplicate) {
 			return;
 		}
+		applyDeliveryStatuses(root);
+	}
+
+	private void applyDeliveryStatuses(JsonNode root) {
+		for (JsonNode entry : root.path("entry")) {
+			for (JsonNode change : entry.path("changes")) {
+				JsonNode value = change.path("value");
+				for (JsonNode statusNode : value.path("statuses")) {
+					String messageId = statusNode.path("id").asText(null);
+					String status = statusNode.path("status").asText(null);
+					if (!StringUtils.hasText(messageId) || !StringUtils.hasText(status)) {
+						continue;
+					}
+					String deliveryStatus = mapDeliveryStatus(status);
+					String errorDetail = extractStatusError(statusNode);
+					String lastError = "FAILED".equals(deliveryStatus) ? errorDetail : null;
+					jdbcTemplate.queryForObject(
+							"select app.apply_whatsapp_delivery_status(?, ?, ?)",
+							Integer.class,
+							messageId,
+							deliveryStatus,
+							lastError);
+				}
+			}
+		}
+	}
+
+	private static String mapDeliveryStatus(String metaStatus) {
+		return switch (metaStatus.toLowerCase()) {
+			case "sent" -> "SENT";
+			case "delivered" -> "DELIVERED";
+			case "read" -> "READ";
+			case "failed" -> "FAILED";
+			default -> metaStatus.toUpperCase();
+		};
+	}
+
+	private static String extractStatusError(JsonNode statusNode) {
+		JsonNode errors = statusNode.path("errors");
+		if (errors.isArray() && !errors.isEmpty()) {
+			JsonNode first = errors.get(0);
+			String title = first.path("title").asText("");
+			String message = first.path("message").asText("");
+			return (title + " " + message).trim();
+		}
+		return "Delivery failed";
 	}
 
 	private JsonNode parse(String rawBody) {
@@ -71,6 +117,10 @@ public class WebhookService {
 		String messageId = change.path("messages").path(0).path("id").asText(null);
 		if (StringUtils.hasText(messageId)) {
 			return messageId;
+		}
+		String statusId = change.path("statuses").path(0).path("id").asText(null);
+		if (StringUtils.hasText(statusId)) {
+			return statusId + ":" + change.path("statuses").path(0).path("status").asText("unknown");
 		}
 		return entryId;
 	}

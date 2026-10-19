@@ -84,6 +84,12 @@ public class PlatformControllers {
 		return platformExpansionService.createProduct(authentication.clinicId(), authentication.userId(), body, RequestIds.from(request));
 	}
 
+	@GetMapping("/exports")
+	public List<PlatformExpansionService.ExportJobListItem> listExports(@AuthenticationPrincipal VetosAuthentication authentication) {
+		authorizationSupport.requirePermission(authentication, "EXPORT_REQUEST");
+		return platformExpansionService.listExportJobs(authentication.clinicId());
+	}
+
 	@PostMapping("/exports")
 	@ResponseStatus(HttpStatus.CREATED)
 	public PlatformExpansionService.ExportJobResponse requestExport(

@@ -182,4 +182,30 @@ public class PlatformExpansionService {
 	public record ExportJobDetail(UUID id, String format, String status, String artifactStorageKey, Instant completedAt) {
 	}
 
+	public record ExportJobListItem(UUID id, String format, String status, Instant createdAt, Instant completedAt) {
+	}
+
+	public List<ExportJobListItem> listExportJobs(UUID clinicId) {
+		return jdbcTemplate.query("""
+				select id, format, status, created_at, completed_at
+				from export_jobs where clinic_id = ? order by created_at desc limit 50
+				""",
+				(rs, rowNum) -> new ExportJobListItem(
+						rs.getObject("id", UUID.class),
+						rs.getString("format"),
+						rs.getString("status"),
+						rs.getTimestamp("created_at").toInstant(),
+						rs.getTimestamp("completed_at") == null ? null : rs.getTimestamp("completed_at").toInstant()),
+				clinicId);
+	}
+
+	public UUID findExportDownloadFileId(UUID clinicId, UUID exportJobId) {
+		return jdbcTemplate.query("""
+				select id from files where clinic_id = ? and entity_type = 'export_job' and entity_id = ? order by created_at desc limit 1
+				""",
+				rs -> rs.next() ? rs.getObject("id", UUID.class) : null,
+				clinicId,
+				exportJobId);
+	}
+
 }

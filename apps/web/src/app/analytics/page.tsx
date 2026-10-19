@@ -7,9 +7,12 @@ import {
   listExpenses,
   createExpense,
   currentUser,
+  issueRefund,
+  listRecentPayments,
   type FinancialSummary,
   type Expense,
   type SessionUser,
+  type PaymentRow,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
@@ -39,6 +42,23 @@ export default function AnalyticsPage() {
     queryKey: ["clinic-expenses"],
     queryFn: () => listExpenses(),
     enabled: isOwner,
+  });
+
+  const paymentsQuery = useQuery<PaymentRow[]>({
+    queryKey: ["recent-payments"],
+    queryFn: () => listRecentPayments(20),
+    enabled: isOwner,
+  });
+
+  const [refundReason, setRefundReason] = useState("");
+  const refundMutation = useMutation({
+    mutationFn: (paymentId: string) =>
+      issueRefund(paymentId, { reason: refundReason || "Owner refund" }, `refund-${paymentId}-${Date.now()}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["recent-payments"] });
+      queryClient.invalidateQueries({ queryKey: ["financial-summary"] });
+      setRefundReason("");
+    },
   });
 
   const createExpenseMutation = useMutation({
@@ -296,6 +316,55 @@ export default function AnalyticsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {isOwner && (
+        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+          <h3 className="text-sm font-bold text-slate-900">Payment refunds</h3>
+          <p className="text-xs text-slate-500">Issue a full refund against a succeeded payment (owner only).</p>
+          <input
+            type="text"
+            value={refundReason}
+            onChange={(e) => setRefundReason(e.target.value)}
+            placeholder="Refund reason (optional)"
+            className="w-full max-w-md rounded border border-slate-300 px-3 py-2 text-sm"
+          />
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-slate-500 uppercase">
+                <tr>
+                  <th className="py-2 pr-4">Paid at</th>
+                  <th className="py-2 pr-4">Amount</th>
+                  <th className="py-2 pr-4">Status</th>
+                  <th className="py-2">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(paymentsQuery.data ?? []).map((p) => (
+                  <tr key={p.id} className="border-t border-slate-100">
+                    <td className="py-2 pr-4">{p.paidAt ? new Date(p.paidAt).toLocaleString() : "—"}</td>
+                    <td className="py-2 pr-4">${Number(p.amount).toFixed(2)}</td>
+                    <td className="py-2 pr-4">{p.status}</td>
+                    <td className="py-2">
+                      {p.status === "SUCCEEDED" ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={refundMutation.isPending}
+                          onClick={() => refundMutation.mutate(p.id)}
+                        >
+                          Refund full
+                        </Button>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
     </div>
   );

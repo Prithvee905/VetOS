@@ -6,6 +6,6 @@ public interface OutboxHandler {
 
 	String eventType();
 
-	void handle(UUID clinicId, String payloadJson) throws Exception;
+	void handle(UUID clinicId, UUID outboxEventId, String payloadJson) throws Exception;
 
 }

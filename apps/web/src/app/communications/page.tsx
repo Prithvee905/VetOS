@@ -192,7 +192,7 @@ export default function CommunicationsHubPage() {
   const broadcastMutation = useMutation({
     mutationFn: (body: BroadcastPayload) => broadcastToCohort(body),
     onSuccess: async (result) => {
-      setMessage(`Broadcast Campaign queued successfully: ${result.dispatchedCount} personalized messages sent to outbox!`);
+      setMessage(`Campaign "${result.name}" queued: ${result.sentCount} messages, ${result.skippedOptOut} skipped (opt-out/consent).`);
       setError(null);
       await queryClient.invalidateQueries({ queryKey: ["outbox-events"] });
       await queryClient.invalidateQueries({ queryKey: ["reminder-cohorts"] });
@@ -951,6 +951,7 @@ export default function CommunicationsHubPage() {
                   <th className="px-3 py-2.5">Attempts</th>
                   <th className="px-3 py-2.5">Created At</th>
                   <th className="px-3 py-2.5">Processed At</th>
+                  <th className="px-3 py-2.5">WhatsApp delivery</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -977,6 +978,9 @@ export default function CommunicationsHubPage() {
                       <td className="px-3 py-2.5 text-slate-500">{new Date(ev.createdAt).toLocaleString()}</td>
                       <td className="px-3 py-2.5 text-slate-500">
                         {ev.processedAt ? new Date(ev.processedAt).toLocaleString() : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-slate-600 font-mono text-[10px]">
+                        {ev.deliveryStatus ?? "—"}
                       </td>
                     </tr>
                   );

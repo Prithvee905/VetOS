@@ -28,7 +28,13 @@ public final class RolePermissions {
 					"EXPORT_REQUEST",
 					"FILE_READ",
 					"FILE_WRITE",
-					"COMMUNICATION_SEND"),
+					"COMMUNICATION_SEND",
+					"NOTIFICATION_READ",
+					"REFUND_WRITE",
+					"CAMPAIGN_MANAGE",
+					"COPILOT_READ",
+					"OFFLINE_SYNC",
+					"PRODUCTION_READ"),
 			"DOCTOR", Set.of(
 					"BRANCH_READ",
 					"PATIENT_WRITE",
@@ -42,7 +48,9 @@ public final class RolePermissions {
 					"PAYMENT_WRITE",
 					"FILE_READ",
 					"FILE_WRITE",
-					"COMMUNICATION_SEND"),
+					"COMMUNICATION_SEND",
+					"NOTIFICATION_READ",
+					"COPILOT_READ"),
 			"RECEPTIONIST", Set.of(
 					"BRANCH_READ",
 					"LEAD_WRITE",
@@ -56,7 +64,9 @@ public final class RolePermissions {
 					"PAYMENT_WRITE",
 					"FILE_READ",
 					"FILE_WRITE",
-					"COMMUNICATION_SEND"),
+					"COMMUNICATION_SEND",
+					"NOTIFICATION_READ",
+					"CAMPAIGN_MANAGE"),
 			"STAFF", Set.of("BRANCH_READ", "QUEUE_WRITE", "INVENTORY_WRITE", "CATALOG_WRITE", "FILE_READ"));
 
 	private static final Set<String> ASSIGNABLE_ROLES = Set.of("OWNER", "DOCTOR", "RECEPTIONIST", "STAFF");

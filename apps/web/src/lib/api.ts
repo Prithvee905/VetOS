@@ -905,6 +905,8 @@ export async function listAuditEvents(page = 0, size = 50): Promise<AuditPage> {
 // Outbox & Communications & Reminders
 // ----------------------------------------------------
 export type OutboxEvent = {
+  providerMessageId?: string | null;
+  deliveryStatus?: string | null;
   id: string;
   eventType: string;
   payload: Record<string, unknown>;
@@ -1021,8 +1023,8 @@ export async function getReminderCohorts(): Promise<ReminderCohortsDto> {
   return apiJson<ReminderCohortsDto>("/api/v1/reminders/cohorts");
 }
 
-export async function broadcastToCohort(body: BroadcastPayload): Promise<BroadcastResultDto> {
-  return apiJson<BroadcastResultDto>("/api/v1/reminders/broadcast", {
+export async function broadcastToCohort(body: BroadcastPayload): Promise<Campaign> {
+  return apiJson<Campaign>("/api/v1/reminders/broadcast", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -1128,4 +1130,137 @@ export async function listFiles(entityType: string, entityId: string): Promise<F
 
 export function getFileDownloadUrl(fileId: string): string {
   return `${apiUrl()}/api/v1/files/${fileId}/download`;
+}
+
+// ----------------------------------------------------
+// Data exports (owner)
+// ----------------------------------------------------
+export type ExportJob = {
+  id: string;
+  format: string;
+  status: string;
+  createdAt: string;
+  completedAt?: string | null;
+};
+
+export async function listExportJobs(): Promise<ExportJob[]> {
+  return apiJson<ExportJob[]>("/api/v1/exports");
+}
+
+export async function requestExport(format: string = "CSV"): Promise<{ id: string; format: string; status: string }> {
+  return apiJson("/api/v1/exports", { method: "POST", body: JSON.stringify({ format }) });
+}
+
+export async function getExportJob(exportId: string): Promise<{
+  id: string;
+  format: string;
+  status: string;
+  artifactStorageKey?: string | null;
+  completedAt?: string | null;
+}> {
+  return apiJson(`/api/v1/exports/${exportId}`);
+}
+
+export function getExportDownloadUrl(exportId: string): string {
+  return `${apiUrl()}/api/v1/exports/${exportId}/download`;
+}
+
+// ----------------------------------------------------
+// Notifications
+// ----------------------------------------------------
+export type AppNotification = {
+  id: string;
+  title: string;
+  body: string;
+  category: string;
+  readAt?: string | null;
+  createdAt: string;
+};
+
+export async function listNotifications(page = 0, size = 20): Promise<{ items: AppNotification[]; total: number }> {
+  return apiJson(`/api/v1/notifications?page=${page}&size=${size}`);
+}
+
+export async function getUnreadNotificationCount(): Promise<number> {
+  const res = await apiJson<{ count: number }>("/api/v1/notifications/unread-count");
+  return res.count;
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  await apiJson(`/api/v1/notifications/${id}/read`, { method: "PATCH" });
+}
+
+export async function markAllNotificationsRead(): Promise<void> {
+  await apiJson("/api/v1/notifications/read-all", { method: "POST" });
+}
+
+// ----------------------------------------------------
+// Refunds
+// ----------------------------------------------------
+export type PaymentRow = {
+  id: string;
+  invoiceId: string;
+  method: string;
+  amount: number;
+  status: string;
+  reference?: string | null;
+  idempotencyKey: string;
+  paidAt?: string | null;
+};
+
+export async function listRecentPayments(limit = 25): Promise<PaymentRow[]> {
+  return apiJson<PaymentRow[]>(`/api/v1/payments/recent?limit=${limit}`);
+}
+
+export async function issueRefund(paymentId: string, body: { amount?: number; reason?: string }, idempotencyKey: string): Promise<void> {
+  await apiJson(`/api/v1/payments/${paymentId}/refunds`, {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify(body),
+  });
+}
+
+// ----------------------------------------------------
+// Campaigns
+// ----------------------------------------------------
+export type Campaign = {
+  id: string;
+  name: string;
+  cohort: string;
+  channel: string;
+  status: string;
+  targetedCount: number;
+  sentCount: number;
+  skippedOptOut: number;
+  createdAt: string;
+  completedAt?: string | null;
+};
+
+export async function listCampaigns(): Promise<Campaign[]> {
+  return apiJson<Campaign[]>("/api/v1/campaigns");
+}
+
+export async function setClientMarketingOptOut(clientId: string, optOut: boolean): Promise<void> {
+  await apiJson(`/api/v1/campaigns/clients/${clientId}/marketing-opt-out`, {
+    method: "PATCH",
+    body: JSON.stringify({ optOut }),
+  });
+}
+
+// ----------------------------------------------------
+// Copilot, offline sync, production gates
+// ----------------------------------------------------
+export async function copilotAdvise(patientId: string): Promise<{ patientId: string; suggestions: string[]; engineVersion: string }> {
+  return apiJson(`/api/v1/copilot/patients/${patientId}/advise`, { method: "POST" });
+}
+
+export async function submitOfflineBatch(body: {
+  deviceId: string;
+  mutations: { clientMutationId: string; mutationType: string; payloadJson: string }[];
+}): Promise<{ batchId: string; status: string; mutationCount: number }> {
+  return apiJson("/api/v1/offline/batches", { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function getProductionGates(): Promise<Record<string, unknown>> {
+  return apiJson<Record<string, unknown>>("/api/v1/platform/production-gates");
 }

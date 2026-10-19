@@ -3,6 +3,7 @@ package com.vetos.integration.outbox;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vetos.integration.storage.BlobStorage;
+import com.vetos.platform.application.NotificationService;
 import com.vetos.platform.ids.UuidV7;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -16,11 +17,17 @@ public class ExportRequestedHandler implements OutboxHandler {
 	private final JdbcTemplate jdbcTemplate;
 	private final BlobStorage blobStorage;
 	private final ObjectMapper objectMapper;
+	private final NotificationService notificationService;
 
-	public ExportRequestedHandler(JdbcTemplate jdbcTemplate, BlobStorage blobStorage, ObjectMapper objectMapper) {
+	public ExportRequestedHandler(
+			JdbcTemplate jdbcTemplate,
+			BlobStorage blobStorage,
+			ObjectMapper objectMapper,
+			NotificationService notificationService) {
 		this.jdbcTemplate = jdbcTemplate;
 		this.blobStorage = blobStorage;
 		this.objectMapper = objectMapper;
+		this.notificationService = notificationService;
 	}
 
 	@Override
@@ -29,7 +36,7 @@ public class ExportRequestedHandler implements OutboxHandler {
 	}
 
 	@Override
-	public void handle(UUID clinicId, String payloadJson) throws Exception {
+	public void handle(UUID clinicId, UUID outboxEventId, String payloadJson) throws Exception {
 		JsonNode root = objectMapper.readTree(payloadJson);
 		UUID exportJobId = UUID.fromString(root.get("exportJobId").asText());
 		jdbcTemplate.update("""
@@ -84,6 +91,7 @@ public class ExportRequestedHandler implements OutboxHandler {
 				fileName,
 				stored.byteSize(),
 				stored.storageKey());
+		notificationService.notifyOwners(clinicId, "Export ready", "Client export " + exportJobId + " is ready to download.", "EXPORT");
 	}
 
 	private String buildCsv(UUID clinicId) {

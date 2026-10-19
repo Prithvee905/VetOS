@@ -6,6 +6,8 @@ import com.vetos.platform.ids.UuidV7;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import com.vetos.platform.infrastructure.RedisDistributedLock;
+import java.time.Duration;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -15,14 +17,22 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class ReminderService {
 
+	private static final String DAILY_LOCK_KEY = "vetos:lock:reminder-daily";
+
 	private final JdbcTemplate jdbcTemplate;
 	private final CommunicationService communicationService;
 	private final AuditRecorder auditRecorder;
+	private final RedisDistributedLock distributedLock;
 
-	public ReminderService(JdbcTemplate jdbcTemplate, CommunicationService communicationService, AuditRecorder auditRecorder) {
+	public ReminderService(
+			JdbcTemplate jdbcTemplate,
+			CommunicationService communicationService,
+			AuditRecorder auditRecorder,
+			RedisDistributedLock distributedLock) {
 		this.jdbcTemplate = jdbcTemplate;
 		this.communicationService = communicationService;
 		this.auditRecorder = auditRecorder;
+		this.distributedLock = distributedLock;
 	}
 
 	/**
@@ -31,6 +41,18 @@ public class ReminderService {
 	 */
 	@Scheduled(cron = "0 0 9 * * *")
 	public void runDailyAutomatedEngine() {
+		if (!distributedLock.tryAcquire(DAILY_LOCK_KEY, Duration.ofMinutes(30))) {
+			return;
+		}
+		try {
+			runDailyAutomatedEngineUnlocked();
+		}
+		finally {
+			distributedLock.release(DAILY_LOCK_KEY);
+		}
+	}
+
+	private void runDailyAutomatedEngineUnlocked() {
 		List<UUID> clinicIds = jdbcTemplate.query(
 				"select id from clinics",
 				(rs, rowNum) -> rs.getObject("id", UUID.class));
@@ -56,7 +78,8 @@ public class ReminderService {
 				String msg = "Hello " + a.clientName() + ", reminder that " + a.patientName() +
 						" has a veterinary appointment on " + a.startsAt() + ".";
 				communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
-						a.phone(), "APPOINTMENT_REMINDER", "en", msg));
+						a.phone(), "APPOINTMENT_REMINDER", "en", msg,
+						java.util.List.of(a.clientName(), a.patientName(), a.startsAt()), false));
 				recordReminderAudit(clinicId, dedupeKey);
 				apptCount++;
 			}
@@ -70,7 +93,8 @@ public class ReminderService {
 				String msg = "Hello " + v.clientName() + ", vaccination booster (" + v.vaccineName() +
 						") for " + v.patientName() + " is due on " + v.nextDueOn() + ".";
 				communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
-						v.phone(), "VAX_REMINDER", "en", msg));
+						v.phone(), "VAX_REMINDER", "en", msg,
+						java.util.List.of(v.clientName(), v.vaccineName(), v.patientName(), v.nextDueOn()), false));
 				recordReminderAudit(clinicId, dedupeKey);
 				vaxCount++;
 			}
@@ -84,7 +108,8 @@ public class ReminderService {
 				String msg = "Hello " + d.clientName() + ", parasite prevention (" + d.productName() +
 						") for " + d.patientName() + " is due on " + d.nextDueOn() + ".";
 				communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
-						d.phone(), "DEWORM_REMINDER", "en", msg));
+						d.phone(), "DEWORM_REMINDER", "en", msg,
+						java.util.List.of(d.clientName(), d.productName(), d.patientName(), d.nextDueOn()), false));
 				recordReminderAudit(clinicId, dedupeKey);
 				dewormCount++;
 			}
@@ -99,7 +124,8 @@ public class ReminderService {
 						f.patientName() + " with Dr. " + f.doctorName() + " is scheduled on " +
 						f.followUpOn() + ". Please confirm your visit.";
 				communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
-						f.phone(), "FOLLOWUP_REMINDER", "en", msg));
+						f.phone(), "FOLLOWUP_REMINDER", "en", msg,
+						java.util.List.of(f.clientName(), f.patientName(), f.doctorName(), f.followUpOn()), false));
 				recordReminderAudit(clinicId, dedupeKey);
 				followupCount++;
 			}
@@ -135,32 +161,32 @@ public class ReminderService {
 		switch (cohort) {
 			case "FOLLOWUPS_7D" -> {
 				for (FollowUpCandidate f : queryFollowupsDue(clinicId, 7)) {
-					recipients.add(new BroadcastRecipient(f.clientName(), f.patientName(), f.phone(), f.followUpOn()));
+					recipients.add(new BroadcastRecipient(null, f.clientName(), f.patientName(), f.phone(), f.followUpOn()));
 				}
 			}
 			case "VAX_7D" -> {
 				for (VaxReminderCandidate v : queryVaccinationsDue(clinicId, 7)) {
-					recipients.add(new BroadcastRecipient(v.clientName(), v.patientName(), v.phone(), v.nextDueOn()));
+					recipients.add(new BroadcastRecipient(null, v.clientName(), v.patientName(), v.phone(), v.nextDueOn()));
 				}
 			}
 			case "DEWORM_7D" -> {
 				for (DewormReminderCandidate d : queryDewormingsDue(clinicId, 7)) {
-					recipients.add(new BroadcastRecipient(d.clientName(), d.patientName(), d.phone(), d.nextDueOn()));
+					recipients.add(new BroadcastRecipient(null, d.clientName(), d.patientName(), d.phone(), d.nextDueOn()));
 				}
 			}
 			case "APPOINTMENTS_24H" -> {
 				for (ApptReminderCandidate a : queryAppointmentsDue(clinicId, 24)) {
-					recipients.add(new BroadcastRecipient(a.clientName(), a.patientName(), a.phone(), a.startsAt()));
+					recipients.add(new BroadcastRecipient(null, a.clientName(), a.patientName(), a.phone(), a.startsAt()));
 				}
 			}
 			case "LAPSED_60D" -> {
 				for (LapsedClientCandidate l : queryLapsedClients(clinicId, 60)) {
-					recipients.add(new BroadcastRecipient(l.clientName(), l.patientNames(), l.phone(), l.lastVisit()));
+					recipients.add(new BroadcastRecipient(l.clientId(), l.clientName(), l.patientNames(), l.phone(), l.lastVisit()));
 				}
 			}
 			default -> {
 				for (AllClientCandidate a : queryAllClients(clinicId)) {
-					recipients.add(new BroadcastRecipient(a.clientName(), a.patientNames(), a.phone(), ""));
+					recipients.add(new BroadcastRecipient(a.clientId(), a.clientName(), a.patientNames(), a.phone(), ""));
 				}
 			}
 		}
@@ -172,6 +198,10 @@ public class ReminderService {
 		int count = 0;
 		for (BroadcastRecipient r : recipients) {
 			if (r.phone() == null || r.phone().isBlank()) continue;
+			UUID clientId = r.clientId() != null ? r.clientId() : resolveClientIdByPhone(clinicId, r.phone());
+			if (clientId != null && isMarketingOptOut(clinicId, clientId)) {
+				continue;
+			}
 
 			String personalized = templateText
 					.replace("{owner_name}", r.ownerName() != null ? r.ownerName() : "Pet Parent")
@@ -180,7 +210,12 @@ public class ReminderService {
 					.replace("{due_date}", r.dueDate() != null ? r.dueDate() : "");
 
 			communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
-					r.phone(), "BROADCAST_" + cohort, "en", personalized));
+					r.phone(), "BROADCAST_" + cohort, "en", personalized,
+					java.util.List.of(
+							r.ownerName() != null ? r.ownerName() : "Pet Parent",
+							clinicName,
+							r.petName() != null ? r.petName() : "your pet"),
+					false));
 			count++;
 		}
 
@@ -343,7 +378,21 @@ public class ReminderService {
 				UuidV7.generate(), clinicId, dedupeKey);
 	}
 
-	private record BroadcastRecipient(String ownerName, String petName, String phone, String dueDate) {}
+	private boolean isMarketingOptOut(UUID clinicId, UUID clientId) {
+		Boolean opted = jdbcTemplate.queryForObject(
+				"select marketing_opt_out from clients where id = ? and clinic_id = ?", Boolean.class, clientId, clinicId);
+		return Boolean.TRUE.equals(opted);
+	}
+
+	private UUID resolveClientIdByPhone(UUID clinicId, String phone) {
+		return jdbcTemplate.query("""
+				select id from clients where clinic_id = ? and phone = ? limit 1
+				""",
+				rs -> rs.next() ? rs.getObject("id", UUID.class) : null,
+				clinicId, phone);
+	}
+
+	private record BroadcastRecipient(UUID clientId, String ownerName, String petName, String phone, String dueDate) {}
 
 	public record ReminderRunSummary(int appointmentsReminded, int vaccinationsReminded, int dewormingsReminded, int followupsReminded) {}
 	public record ApptReminderCandidate(UUID id, String startsAt, String patientName, String clientName, String phone, String email) {}

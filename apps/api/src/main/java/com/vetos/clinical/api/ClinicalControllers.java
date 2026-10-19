@@ -218,6 +218,32 @@ public class ClinicalControllers {
 		return clinicalWorkflowService.recordPayment(authentication.clinicId(), authentication.userId(), body, idempotencyKey, RequestIds.from(request));
 	}
 
+	@GetMapping("/payments/recent")
+	public List<ClinicalWorkflowService.PaymentResponse> listRecentPayments(
+			@AuthenticationPrincipal VetosAuthentication authentication,
+			@RequestParam(defaultValue = "25") int limit) {
+		authorizationSupport.requirePermission(authentication, "PAYMENT_WRITE");
+		return clinicalWorkflowService.listRecentPayments(authentication.clinicId(), limit);
+	}
+
+	@PostMapping("/payments/{paymentId}/refunds")
+	@ResponseStatus(HttpStatus.CREATED)
+	public ClinicalWorkflowService.RefundResponse issueRefund(
+			@AuthenticationPrincipal VetosAuthentication authentication,
+			@PathVariable UUID paymentId,
+			@Valid @RequestBody ClinicalWorkflowService.RefundRequest body,
+			@RequestHeader("Idempotency-Key") @NotBlank String idempotencyKey,
+			HttpServletRequest request) {
+		authorizationSupport.requirePermission(authentication, "REFUND_WRITE");
+		return clinicalWorkflowService.issueRefund(
+				authentication.clinicId(),
+				authentication.userId(),
+				paymentId,
+				body,
+				idempotencyKey,
+				RequestIds.from(request));
+	}
+
 	public record ClientCreateBody(
 			@NotBlank String displayName,
 			String phone,
