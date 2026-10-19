@@ -127,10 +127,11 @@ export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<
     const error = (await response.json().catch(() => null)) as ApiError | null;
     throw new Error(error?.message ?? `Request failed (${response.status})`);
   }
-  if (response.status === 204) {
+  const text = await response.text();
+  if (!text) {
     return undefined as T;
   }
-  return (await response.json()) as T;
+  return JSON.parse(text) as T;
 }
 
 export async function login(email: string, password: string): Promise<SessionUser> {

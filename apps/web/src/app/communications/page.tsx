@@ -28,7 +28,6 @@ import {
   Bug,
   Sparkles,
   Send,
-  ExternalLink,
   CheckCircle2,
   AlertCircle,
   Clock,
@@ -149,10 +148,28 @@ export default function CommunicationsHubPage() {
     setEmailBody(`Dear ${selected.ownerName},\n\nThis is a care follow-up from ${cName} regarding ${selected.petName}.\n\nWarm regards,\n${cName} Team`);
   }
 
-  function getWhatsAppUrl(phone: string, text: string) {
-    const clean = (phone || "").replace(/[^0-9]/g, "");
-    const formatted = clean.startsWith("91") ? clean : clean.length === 10 ? `91${clean}` : clean;
-    return `https://wa.me/${formatted}?text=${encodeURIComponent(text)}`;
+  function queueCloudWhatsApp(to: string, body: string, template?: string) {
+    queueWhatsAppQuickMutation.mutate({
+      to,
+      template: template ?? templateForTab(activeTab),
+      body,
+    });
+  }
+
+  function templateForTab(tab: CampaignTab): string {
+    switch (tab) {
+      case "FOLLOWUPS":
+        return "FOLLOWUP_REMINDER";
+      case "VACCINES":
+        return "VAX_REMINDER";
+      case "DEWORMING":
+        return "DEWORM_REMINDER";
+      case "LAPSED":
+      case "ANNOUNCEMENTS":
+        return "CLINIC_UPDATE";
+      default:
+        return "CLINIC_UPDATE";
+    }
   }
 
   // Mutations
@@ -160,6 +177,17 @@ export default function CommunicationsHubPage() {
     mutationFn: () => sendWhatsApp({ to: waPhone, template: waTemplate, body: waBody }),
     onSuccess: async () => {
       setMessage(`WhatsApp message dispatched to ${waPhone} and queued to outbox.`);
+      setError(null);
+      await queryClient.invalidateQueries({ queryKey: ["outbox-events"] });
+    },
+    onError: (err) => setError(err instanceof Error ? err.message : "Failed to queue WhatsApp message"),
+  });
+
+  const queueWhatsAppQuickMutation = useMutation({
+    mutationFn: (params: { to: string; template: string; body: string }) =>
+      sendWhatsApp({ to: params.to, template: params.template, body: params.body }),
+    onSuccess: async () => {
+      setMessage("Message queued to outbox — Meta Cloud API will send shortly.");
       setError(null);
       await queryClient.invalidateQueries({ queryKey: ["outbox-events"] });
     },
@@ -216,7 +244,7 @@ export default function CommunicationsHubPage() {
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            Targeted customer broadcast campaigns, 1-click WhatsApp web dispatch, and automatic clinical follow-up scheduling.
+            Targeted broadcast campaigns via Meta WhatsApp Cloud API and automatic clinical follow-up scheduling.
           </p>
         </div>
 
@@ -445,7 +473,8 @@ export default function CommunicationsHubPage() {
                     value={waTemplate}
                     onChange={(e) => setWaTemplate(e.target.value)}
                   >
-                    <option value="CLINIC_UPDATE">CLINIC_UPDATE (General Note)</option>
+                    <option value="hello_world">hello_world (Meta test — use while templates are in review)</option>
+                    <option value="CLINIC_UPDATE">CLINIC_UPDATE (General Note → campaign_notice)</option>
                     <option value="FOLLOWUP_REMINDER">FOLLOWUP_REMINDER (Clinical Follow-up)</option>
                     <option value="VAX_REMINDER">VAX_REMINDER (Vaccine Due)</option>
                     <option value="DEWORM_REMINDER">DEWORM_REMINDER (Parasite Prevention)</option>
@@ -473,24 +502,8 @@ export default function CommunicationsHubPage() {
                     {sendWhatsAppMutation.isPending ? "Dispatching via Meta API…" : "⚡ Send via WhatsApp Cloud API (Automated)"}
                   </Button>
                   <p className="text-[11px] text-slate-500 text-center">
-                    Dispatched directly from the server via official Meta WhatsApp Cloud API.
+                    Queued on the server and sent via Meta WhatsApp Cloud API. Check the outbox table below for status.
                   </p>
-
-                  <div className="border-t border-slate-100 pt-2 flex items-center justify-between">
-                    <span className="text-[11px] text-slate-400">Prefer personal 1-on-1 desk chat?</span>
-                    <a
-                      href={waPhone ? getWhatsAppUrl(waPhone, waBody) : "#"}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={`inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 hover:text-emerald-700 hover:underline ${
-                        !waPhone ? "pointer-events-none opacity-40" : ""
-                      }`}
-                    >
-                      <MessageSquare className="h-3 w-3 text-emerald-600" />
-                      <span>Optional: Open in WhatsApp Web</span>
-                      <ExternalLink className="h-2.5 w-2.5" />
-                    </a>
-                  </div>
                 </div>
               </div>
             ) : (
@@ -541,7 +554,7 @@ export default function CommunicationsHubPage() {
           {/* Quick Pet Parents Directory */}
           <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <h3 className="text-base font-bold text-slate-900 border-b border-slate-100 pb-3">
-              Pet Parents Directory & Quick WhatsApp Launch
+              Pet Parents Directory — quick Cloud API send
             </h3>
             <div className="divide-y divide-slate-100 max-h-[460px] overflow-y-auto mt-2">
               {petParentOptions.map((opt) => (
@@ -563,18 +576,21 @@ export default function CommunicationsHubPage() {
                       Use in Composer
                     </button>
                     {opt.phone && (
-                      <a
-                        href={getWhatsAppUrl(
-                          opt.phone,
-                          `Hello ${opt.ownerName}, warm greetings from ${clinicName} regarding your pet ${opt.petName}.`
-                        )}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center gap-1 shadow-2xs"
+                      <button
+                        type="button"
+                        disabled={queueWhatsAppQuickMutation.isPending}
+                        onClick={() =>
+                          queueWhatsAppQuickMutation.mutate({
+                            to: opt.phone,
+                            template: waTemplate,
+                            body: `Hello ${opt.ownerName}, warm greetings from ${clinicName} regarding your pet ${opt.petName}.`,
+                          })
+                        }
+                        className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-[11px] flex items-center gap-1 shadow-2xs"
                       >
-                        <MessageSquare className="h-3 w-3" />
-                        <span>Chat WhatsApp</span>
-                      </a>
+                        <Send className="h-3 w-3" />
+                        <span>Send via API</span>
+                      </button>
                     )}
                   </div>
                 </div>
@@ -669,7 +685,7 @@ export default function CommunicationsHubPage() {
                   Targeted Recipients & 1-Click Dispatch
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Open individually in WhatsApp Web or batch-queue via outbox.
+                  Queue individual messages via Meta Cloud API or use batch broadcast on the left.
                 </p>
               </div>
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-800">
@@ -724,15 +740,15 @@ export default function CommunicationsHubPage() {
                             </td>
                             <td className="px-3 py-2.5 text-right">
                               {f.phone && (
-                                <a
-                                  href={getWhatsAppUrl(f.phone, previewMsg)}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-2.5 py-1 shadow-2xs"
+                                <button
+                                  type="button"
+                                  disabled={queueWhatsAppQuickMutation.isPending}
+                                  onClick={() => queueCloudWhatsApp(f.phone, previewMsg)}
+                                  className="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-[11px] px-2.5 py-1 shadow-2xs"
                                 >
-                                  <MessageSquare className="h-3 w-3" />
-                                  <span>WhatsApp</span>
-                                </a>
+                                  <Send className="h-3 w-3" />
+                                  <span>Send API</span>
+                                </button>
                               )}
                             </td>
                           </tr>
@@ -770,15 +786,15 @@ export default function CommunicationsHubPage() {
                             </td>
                             <td className="px-3 py-2.5 text-right">
                               {v.phone && (
-                                <a
-                                  href={getWhatsAppUrl(v.phone, previewMsg)}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-2.5 py-1 shadow-2xs"
+                                <button
+                                  type="button"
+                                  disabled={queueWhatsAppQuickMutation.isPending}
+                                  onClick={() => queueCloudWhatsApp(v.phone, previewMsg)}
+                                  className="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-[11px] px-2.5 py-1 shadow-2xs"
                                 >
-                                  <MessageSquare className="h-3 w-3" />
-                                  <span>WhatsApp</span>
-                                </a>
+                                  <Send className="h-3 w-3" />
+                                  <span>Send API</span>
+                                </button>
                               )}
                             </td>
                           </tr>
@@ -816,15 +832,15 @@ export default function CommunicationsHubPage() {
                             </td>
                             <td className="px-3 py-2.5 text-right">
                               {d.phone && (
-                                <a
-                                  href={getWhatsAppUrl(d.phone, previewMsg)}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-2.5 py-1 shadow-2xs"
+                                <button
+                                  type="button"
+                                  disabled={queueWhatsAppQuickMutation.isPending}
+                                  onClick={() => queueCloudWhatsApp(d.phone, previewMsg)}
+                                  className="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-[11px] px-2.5 py-1 shadow-2xs"
                                 >
-                                  <MessageSquare className="h-3 w-3" />
-                                  <span>WhatsApp</span>
-                                </a>
+                                  <Send className="h-3 w-3" />
+                                  <span>Send API</span>
+                                </button>
                               )}
                             </td>
                           </tr>
@@ -862,15 +878,15 @@ export default function CommunicationsHubPage() {
                             </td>
                             <td className="px-3 py-2.5 text-right">
                               {l.phone && (
-                                <a
-                                  href={getWhatsAppUrl(l.phone, previewMsg)}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-2.5 py-1 shadow-2xs"
+                                <button
+                                  type="button"
+                                  disabled={queueWhatsAppQuickMutation.isPending}
+                                  onClick={() => queueCloudWhatsApp(l.phone, previewMsg)}
+                                  className="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-[11px] px-2.5 py-1 shadow-2xs"
                                 >
-                                  <MessageSquare className="h-3 w-3" />
-                                  <span>WhatsApp</span>
-                                </a>
+                                  <Send className="h-3 w-3" />
+                                  <span>Send API</span>
+                                </button>
                               )}
                             </td>
                           </tr>
@@ -903,15 +919,15 @@ export default function CommunicationsHubPage() {
                             <td className="px-3 py-2.5 text-slate-500 text-[11px]">Active Client</td>
                             <td className="px-3 py-2.5 text-right">
                               {c.phone && (
-                                <a
-                                  href={getWhatsAppUrl(c.phone, previewMsg)}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-2.5 py-1 shadow-2xs"
+                                <button
+                                  type="button"
+                                  disabled={queueWhatsAppQuickMutation.isPending}
+                                  onClick={() => queueCloudWhatsApp(c.phone, previewMsg)}
+                                  className="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-[11px] px-2.5 py-1 shadow-2xs"
                                 >
-                                  <MessageSquare className="h-3 w-3" />
-                                  <span>WhatsApp</span>
-                                </a>
+                                  <Send className="h-3 w-3" />
+                                  <span>Send API</span>
+                                </button>
                               )}
                             </td>
                           </tr>
