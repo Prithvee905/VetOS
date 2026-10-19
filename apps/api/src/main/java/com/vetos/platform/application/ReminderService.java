@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.UUID;
 import com.vetos.platform.infrastructure.RedisDistributedLock;
 import java.time.Duration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -23,16 +24,19 @@ public class ReminderService {
 	private final CommunicationService communicationService;
 	private final AuditRecorder auditRecorder;
 	private final RedisDistributedLock distributedLock;
+	private final boolean dailyRemindersEnabled;
 
 	public ReminderService(
 			JdbcTemplate jdbcTemplate,
 			CommunicationService communicationService,
 			AuditRecorder auditRecorder,
-			RedisDistributedLock distributedLock) {
+			RedisDistributedLock distributedLock,
+			@Value("${vetos.reminders.daily-enabled:true}") boolean dailyRemindersEnabled) {
 		this.jdbcTemplate = jdbcTemplate;
 		this.communicationService = communicationService;
 		this.auditRecorder = auditRecorder;
 		this.distributedLock = distributedLock;
+		this.dailyRemindersEnabled = dailyRemindersEnabled;
 	}
 
 	/**
@@ -41,6 +45,9 @@ public class ReminderService {
 	 */
 	@Scheduled(cron = "0 0 9 * * *")
 	public void runDailyAutomatedEngine() {
+		if (!dailyRemindersEnabled) {
+			return;
+		}
 		if (!distributedLock.tryAcquire(DAILY_LOCK_KEY, Duration.ofMinutes(30))) {
 			return;
 		}

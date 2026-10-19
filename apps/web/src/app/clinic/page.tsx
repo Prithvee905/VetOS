@@ -108,6 +108,22 @@ type CompletedPaymentReceipt = {
   lines: { description: string; quantity: number; unitPrice: number; total: number }[];
 };
 
+function formatIndianWhatsAppPhone(raw: string): string | null {
+  const clean = raw.replace(/\D/g, "");
+  if (clean.length < 10) {
+    return null;
+  }
+  if (clean.length === 10) {
+    return `91${clean}`;
+  }
+  return clean;
+}
+
+function resolveInvoiceWhatsAppPhone(customPhone: string, clientPhone?: string | null): string | null {
+  const raw = customPhone.trim() || (clientPhone?.trim() ?? "");
+  return formatIndianWhatsAppPhone(raw);
+}
+
 export default function ClinicOperationsStation() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<ActiveTab>("queue");
@@ -468,7 +484,16 @@ export default function ClinicOperationsStation() {
   const [discountPercent, setDiscountPercent] = useState<number>(0);
   const [discountError, setDiscountError] = useState<string>("");
   const [applyDiscountToMedicines, setApplyDiscountToMedicines] = useState<boolean>(false);
-  const [invoiceCustomPhone, setInvoiceCustomPhone] = useState<string>("7981596766");
+  const [invoiceCustomPhone, setInvoiceCustomPhone] = useState<string>("");
+
+  useEffect(() => {
+    const client = clients.data?.find((c) => c.id === basketClientId);
+    if (client?.phone) {
+      const digits = client.phone.replace(/\D/g, "");
+      const ten = digits.length >= 10 ? digits.slice(-10) : digits;
+      setInvoiceCustomPhone((prev) => (prev.trim() === "" ? ten : prev));
+    }
+  }, [basketClientId, clients.data]);
 
   useEffect(() => {
     if (clinicProfile.data?.allowMedicineDiscount !== undefined) {
@@ -1263,78 +1288,93 @@ export default function ClinicOperationsStation() {
     onError: notifyError,
   });
 
+  async function queueInvoicePdfWhatsApp(
+    formattedPhone: string,
+    invoiceId: string,
+    ownerName: string,
+    invoiceNumber: string,
+    bodyPreview: string
+  ) {
+    await sendWhatsApp({
+      to: formattedPhone,
+      template: "INVOICE_PDF",
+      templateParams: [ownerName],
+      invoiceId,
+      body: bodyPreview,
+    });
+    notifySuccess(`Invoice #${invoiceNumber} queued for WhatsApp (+${formattedPhone}).`);
+  }
+
+  function explainWhatsAppSendError(err: unknown, formattedPhone: string) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    if (errMsg.includes("131030") || errMsg.includes("not in allowed list")) {
+      notifyError(
+        `Meta: +${formattedPhone} must be on your WhatsApp allowed recipient list (API Setup) before sending.`
+      );
+    } else {
+      notifyError(`WhatsApp: ${errMsg}`);
+    }
+  }
+
   async function handleWhatsAppReceipt(receipt: CompletedPaymentReceipt) {
-    if (!receipt.clientPhone) {
-      notifyError("No phone number registered for this client.");
+    const formattedPhone = resolveInvoiceWhatsAppPhone("", receipt.clientPhone);
+    if (!formattedPhone) {
+      notifyError("Add a valid 10-digit WhatsApp number for this client.");
       return;
     }
-    const cleanPhone = receipt.clientPhone.replace(/\D/g, "");
-    const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+    if (!receipt.invoiceId) {
+      notifyError("Invoice id missing; cannot send PDF on WhatsApp.");
+      return;
+    }
     const msg = `*${clinicName.toUpperCase()}*\nOfficial Invoice Receipt\n-------------------------------\nInvoice: #${receipt.invoiceNumber}\nDate: ${receipt.dateStr}\nClient: ${receipt.clientName}\nPatient: ${receipt.petName || "Pet"}\nPayment: ${receipt.paymentMethod} (PAID)\nTotal Amount: ₹${receipt.total.toFixed(2)}\n-------------------------------\nThank you for trusting ${clinicName}! For appointments & queries, call our front desk.`;
 
     setWaSending(true);
     try {
-      await sendWhatsApp({
-        to: formattedPhone,
-        body: msg,
-      });
-      notifySuccess(`WhatsApp receipt queued for ${receipt.clientPhone}`);
-    } catch {
-      notifySuccess(`Opening WhatsApp chat with ${receipt.clientPhone}…`);
+      await queueInvoicePdfWhatsApp(
+        formattedPhone,
+        receipt.invoiceId,
+        receipt.clientName || "Pet Parent",
+        receipt.invoiceNumber,
+        msg
+      );
+    } catch (err: unknown) {
+      explainWhatsAppSendError(err, formattedPhone);
     } finally {
       setWaSending(false);
-      if (typeof window !== "undefined") {
-        window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, "_blank");
-      }
     }
   }
 
   async function handleSendInvoiceWhatsApp(inv?: InvoiceRow | null) {
+    if (!inv?.id) {
+      notifyError("Issue the invoice first, then send on WhatsApp.");
+      return;
+    }
     const client = clients.data?.find(
       (c) =>
         c.id === basketClientId ||
         (activePatientId && c.id === patients.data?.find((p) => p.id === activePatientId)?.clientId)
     );
     const patient = patients.data?.find((p) => p.id === (basketPatientId || activePatientId));
-    const targetPhone = invoiceCustomPhone.trim() || client?.phone || "7981596766";
-    const cleanPhone = targetPhone.replace(/\D/g, "");
-    const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+    const formattedPhone = resolveInvoiceWhatsAppPhone(invoiceCustomPhone, client?.phone);
+    if (!formattedPhone) {
+      notifyError("Enter the client's 10-digit WhatsApp number (or add phone on the client profile).");
+      return;
+    }
 
-    const total = inv ? Number(inv.total) : finalTotal;
-    const invNumber = inv?.invoiceNumber || (completedReceipt?.invoiceNumber ?? "BILL-" + Date.now().toString().slice(-4));
+    const invNumber = inv.invoiceNumber;
     const itemsSummary = basketLines
       .slice(0, 6)
       .map((l) => `• ${l.description}: ${l.quantity}x @ ₹${l.unitPrice} = ₹${(l.quantity * l.unitPrice).toFixed(2)}`)
       .join("\n");
 
-    const msg = `*${clinicName.toUpperCase()}*\n🐾 Official Invoice & Bill Receipt\n-------------------------------\nInvoice: #${invNumber}\nDate: ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}\nClient: ${client?.displayName || "Pet Parent"}\nPatient: ${patient?.name || "Pet"}\n\n*Bill Breakdown:*\n${itemsSummary}\n\n*Total Due / Paid: ₹${total.toFixed(2)}*\nStatus: ${inv?.status === "PAID" || completedReceipt ? "PAID ✓" : "DUE AT COUNTER"}\n-------------------------------\nThank you for choosing ${clinicName}! For questions, call our clinic desk.`;
+    const msg = `*${clinicName.toUpperCase()}*\n🐾 Official Invoice & Bill Receipt\n-------------------------------\nInvoice: #${invNumber}\nDate: ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}\nClient: ${client?.displayName || "Pet Parent"}\nPatient: ${patient?.name || "Pet"}\n\n*Bill Breakdown:*\n${itemsSummary}\n\n*Total Due / Paid: ₹${Number(inv.total).toFixed(2)}*\nStatus: ${inv.status === "PAID" || completedReceipt ? "PAID ✓" : "DUE AT COUNTER"}\n-------------------------------\nThank you for choosing ${clinicName}! For questions, call our clinic desk.`;
 
     setWaSending(true);
     try {
       const ownerName = client?.displayName || "Pet Parent";
-      if (inv?.id) {
-        await sendWhatsApp({
-          to: formattedPhone,
-          template: "INVOICE_PDF",
-          templateParams: [ownerName],
-          invoiceId: inv.id,
-          body: msg,
-        });
-      } else {
-        await sendWhatsApp({
-          to: formattedPhone,
-          body: msg,
-          sessionMessage: true,
-        });
-      }
-      notifySuccess(`⚡ Invoice #${invNumber} sent to +${formattedPhone} via Meta WhatsApp Cloud API!`);
+      await queueInvoicePdfWhatsApp(formattedPhone, inv.id, ownerName, invNumber, msg);
     } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      if (errMsg.includes("131030") || errMsg.includes("not in allowed list")) {
-        notifyError(`Meta Sandbox Notice: +${formattedPhone} must be added to your Meta Developer Portal allowed recipient list (under WhatsApp -> API Setup -> "To" phone numbers) before sending.`);
-      } else {
-        notifyError(`Meta WhatsApp Cloud API: ${errMsg}`);
-      }
+      explainWhatsAppSendError(err, formattedPhone);
     } finally {
       setWaSending(false);
     }
@@ -3613,7 +3653,7 @@ export default function ClinicOperationsStation() {
                       <span className="text-xs font-semibold text-slate-600">WhatsApp To:</span>
                       <input
                         type="tel"
-                        placeholder="7981596766"
+                        placeholder="10-digit mobile"
                         value={invoiceCustomPhone}
                         onChange={(e) => setInvoiceCustomPhone(e.target.value)}
                         className="w-32 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-800 placeholder-slate-400 focus:border-teal-500 focus:outline-none"
@@ -3628,7 +3668,7 @@ export default function ClinicOperationsStation() {
                       size="sm"
                       className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 shadow-2xs"
                       onClick={() => handleSendInvoiceWhatsApp(issuedInvoice)}
-                      disabled={waSending || basketLines.length === 0}
+                      disabled={waSending || !issuedInvoice}
                     >
                       <MessageSquare className="h-4 w-4" />
                       <span>{waSending ? "Sending…" : "⚡ Send Invoice on WhatsApp"}</span>
