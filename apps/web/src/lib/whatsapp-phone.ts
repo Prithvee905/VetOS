@@ -14,3 +14,15 @@ export function resolveInvoiceWhatsAppPhone(customPhone: string, clientPhone?: s
   const raw = customPhone.trim() || (clientPhone?.trim() ?? "");
   return formatIndianWhatsAppPhone(raw);
 }
+
+/** Last 10 digits for POS input (owner profile may include country code). */
+export function phoneDigitsForInput(raw?: string | null): string {
+  if (!raw?.trim()) {
+    return "";
+  }
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length >= 10) {
+    return digits.slice(-10);
+  }
+  return digits;
+}

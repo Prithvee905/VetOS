@@ -66,7 +66,7 @@ import {
   STANDARD_VETERINARY_MEDICINES,
   PRESCRIPTION_CLINICAL_PACKS,
 } from "@/lib/clinical-constants";
-import { resolveInvoiceWhatsAppPhone } from "@/lib/whatsapp-phone";
+import { phoneDigitsForInput, resolveInvoiceWhatsAppPhone } from "@/lib/whatsapp-phone";
 
 type ActiveTab = "queue" | "appointments" | "soap" | "pos" | "register";
 
@@ -470,20 +470,7 @@ export default function ClinicOperationsStation() {
   const [discountError, setDiscountError] = useState<string>("");
   const [applyDiscountToMedicines, setApplyDiscountToMedicines] = useState<boolean>(false);
   const [invoiceCustomPhone, setInvoiceCustomPhone] = useState<string>("");
-
-  useEffect(() => {
-    if (!basketClientId) {
-      return;
-    }
-    const client = clients.data?.find((c) => c.id === basketClientId);
-    if (client?.phone) {
-      const digits = client.phone.replace(/\D/g, "");
-      const ten = digits.length >= 10 ? digits.slice(-10) : digits;
-      setInvoiceCustomPhone(ten);
-    } else {
-      setInvoiceCustomPhone("");
-    }
-  }, [basketClientId, clients.data]);
+  const [whatsappPhoneEdited, setWhatsappPhoneEdited] = useState(false);
 
   useEffect(() => {
     if (clinicProfile.data?.allowMedicineDiscount !== undefined) {
@@ -557,6 +544,17 @@ export default function ClinicOperationsStation() {
     }
     return null;
   }, [clients.data, resolvedBasketPatient, basketClientId]);
+
+  useEffect(() => {
+    setWhatsappPhoneEdited(false);
+  }, [resolvedBasketClient?.id]);
+
+  useEffect(() => {
+    if (whatsappPhoneEdited) {
+      return;
+    }
+    setInvoiceCustomPhone(phoneDigitsForInput(resolvedBasketClient?.phone));
+  }, [resolvedBasketClient?.phone, resolvedBasketClient?.id, whatsappPhoneEdited]);
 
   function handleAssignBasketPatient(patientId: string) {
     setBasketPatientId(patientId);
@@ -1230,13 +1228,21 @@ export default function ClinicOperationsStation() {
     },
     onSuccess: () => {
       if (issuedInvoice) {
-        const client = clients.data?.find((c) => c.id === basketClientId || (activePatientId && c.id === patients.data?.find((p) => p.id === activePatientId)?.clientId));
+        const client =
+          resolvedBasketClient ??
+          clients.data?.find(
+            (c) =>
+              c.id === basketClientId ||
+              (activePatientId && c.id === patients.data?.find((p) => p.id === activePatientId)?.clientId)
+          );
         const pet = patients.data?.find((p) => p.id === (basketPatientId || activePatientId));
+        const receiptPhone =
+          invoiceCustomPhone.trim() || phoneDigitsForInput(client?.phone) || client?.phone || "";
         setCompletedReceipt({
           invoiceId: issuedInvoice.id,
           invoiceNumber: issuedInvoice.invoiceNumber,
           clientName: client?.displayName || "Clinic Walk-In Client",
-          clientPhone: client?.phone || "",
+          clientPhone: receiptPhone,
           clientEmail: client?.email || "",
           petName: pet?.name || "Patient",
           total: Number(issuedInvoice.total) || finalTotal,
@@ -1292,7 +1298,9 @@ export default function ClinicOperationsStation() {
       invoiceId,
       body: bodyPreview,
     });
-    notifySuccess(`Invoice #${invoiceNumber} queued for WhatsApp (+${formattedPhone}).`);
+    notifySuccess(
+      `Invoice #${invoiceNumber} queued for WhatsApp (+${formattedPhone}). Delivery usually takes under a minute — check Communications → Outbox if the customer does not receive it.`
+    );
   }
 
   function explainWhatsAppSendError(err: unknown, formattedPhone: string) {
@@ -1307,7 +1315,10 @@ export default function ClinicOperationsStation() {
   }
 
   async function handleWhatsAppReceipt(receipt: CompletedPaymentReceipt) {
-    const formattedPhone = resolveInvoiceWhatsAppPhone("", receipt.clientPhone);
+    const formattedPhone = resolveInvoiceWhatsAppPhone(
+      invoiceCustomPhone,
+      receipt.clientPhone || resolvedBasketClient?.phone
+    );
     if (!formattedPhone) {
       notifyError("Add a valid 10-digit WhatsApp number for this client.");
       return;
@@ -1339,11 +1350,13 @@ export default function ClinicOperationsStation() {
       notifyError("Issue the invoice first, then send on WhatsApp.");
       return;
     }
-    const client = clients.data?.find(
-      (c) =>
-        c.id === basketClientId ||
-        (activePatientId && c.id === patients.data?.find((p) => p.id === activePatientId)?.clientId)
-    );
+    const client =
+      resolvedBasketClient ??
+      clients.data?.find(
+        (c) =>
+          c.id === basketClientId ||
+          (activePatientId && c.id === patients.data?.find((p) => p.id === activePatientId)?.clientId)
+      );
     const patient = patients.data?.find((p) => p.id === (basketPatientId || activePatientId));
     const formattedPhone = resolveInvoiceWhatsAppPhone(invoiceCustomPhone, client?.phone);
     if (!formattedPhone) {
@@ -3645,9 +3658,13 @@ export default function ClinicOperationsStation() {
                         type="tel"
                         placeholder="10-digit mobile"
                         value={invoiceCustomPhone}
-                        onChange={(e) => setInvoiceCustomPhone(e.target.value)}
-                        className="w-32 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-800 placeholder-slate-400 focus:border-teal-500 focus:outline-none"
-                        title="Enter 10-digit WhatsApp phone to dispatch official invoice"
+                        onChange={(e) => {
+                          setWhatsappPhoneEdited(true);
+                          setInvoiceCustomPhone(e.target.value);
+                        }}
+                        className="w-36 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-800 placeholder-slate-400 focus:border-teal-500 focus:outline-none"
+                        title="Auto-filled from owner profile; edit if the customer gives a different WhatsApp number"
+                        aria-label="WhatsApp number for invoice"
                       />
                     </div>
                   </div>
