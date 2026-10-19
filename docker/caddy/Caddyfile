@@ -1,54 +1,71 @@
 # ==============================================================================
 # ClinicOS / VetOS Production Caddy Configuration
-# Reverse Proxy with Automatic HTTPS via Let's Encrypt / ZeroSSL
+# Reverse Proxy with Automatic HTTPS (Let's Encrypt) when DOMAIN_NAME is set
 # ==============================================================================
 
+# Primary: https://app.vetosclinic.com (DOMAIN_NAME from docker-compose)
+{$DOMAIN_NAME} {
+	encode zstd gzip
+
+	handle /api/v1/platform-admin/* {
+		respond "Access Denied: Internal admin endpoint." 403
+	}
+
+	handle /api/* {
+		reverse_proxy api:8080
+	}
+
+	handle /actuator/health* {
+		reverse_proxy api:8080
+	}
+
+	handle /actuator/* {
+		respond "Access Denied: Sensitive actuator endpoints are private." 403
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		X-XSS-Protection "1; mode=block"
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 20MB
+			roll_keep 5
+		}
+		format json
+	}
+}
+
+# Fallback: direct IP / HTTP before DNS (no TLS on bare IP)
 :80 {
-    # Modern compression (zstd and gzip)
-    encode zstd gzip
+	encode zstd gzip
 
-    # 0. Block internal platform admin endpoints from external public access
-    handle /api/v1/platform-admin/* {
-        respond "Access Denied: Internal admin endpoint." 403
-    }
+	handle /api/v1/platform-admin/* {
+		respond "Access Denied: Internal admin endpoint." 403
+	}
 
-    # 1. Spring Boot REST API
-    handle /api/* {
-        reverse_proxy api:8080
-    }
+	handle /api/* {
+		reverse_proxy api:8080
+	}
 
-    # 2. Public Health Probe (Only /actuator/health is permitted)
-    handle /actuator/health* {
-        reverse_proxy api:8080
-    }
+	handle /actuator/health* {
+		reverse_proxy api:8080
+	}
 
-    # 3. Block all sensitive Actuator endpoints from external access
-    # (env, beans, configprops, loggers, metrics, heapdump, mappings, etc.)
-    handle /actuator/* {
-        respond "Access Denied: Sensitive actuator endpoints are private." 403
-    }
+	handle /actuator/* {
+		respond "Access Denied: Sensitive actuator endpoints are private." 403
+	}
 
-    # 4. Next.js Web Application Frontend (All other routes)
-    handle {
-        reverse_proxy web:3000
-    }
-
-    # Production HTTP Security Headers
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        X-Content-Type-Options "nosniff"
-        X-Frame-Options "SAMEORIGIN"
-        Referrer-Policy "strict-origin-when-cross-origin"
-        Permissions-Policy "camera=(), microphone=(), geolocation=()"
-        X-XSS-Protection "1; mode=block"
-    }
-
-    # Production Structured Access Logging
-    log {
-        output file /data/access.log {
-            roll_size 20MB
-            roll_keep 5
-        }
-        format json
-    }
+	handle {
+		reverse_proxy web:3000
+	}
 }
