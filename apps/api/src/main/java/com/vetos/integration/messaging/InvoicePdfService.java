@@ -6,6 +6,7 @@ import com.lowagie.text.Font;
 import com.lowagie.text.FontFactory;
 import com.lowagie.text.Paragraph;
 import com.lowagie.text.Phrase;
+import com.lowagie.text.pdf.BaseFont;
 import com.lowagie.text.pdf.PdfPCell;
 import com.lowagie.text.pdf.PdfPTable;
 import com.lowagie.text.pdf.PdfWriter;
@@ -20,9 +21,10 @@ import org.springframework.stereotype.Service;
 @Service
 public class InvoicePdfService {
 
-	private static final Font TITLE = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16);
-	private static final Font NORMAL = FontFactory.getFont(FontFactory.HELVETICA, 10);
-	private static final Font SMALL = FontFactory.getFont(FontFactory.HELVETICA, 9);
+	private static final Font TITLE = font(BaseFont.HELVETICA_BOLD, 16);
+	private static final Font NORMAL = font(BaseFont.HELVETICA, 10);
+	private static final Font SMALL = font(BaseFont.HELVETICA, 9);
+	private static final Font HEADER = font(BaseFont.HELVETICA_BOLD, 9);
 
 	public byte[] render(InvoiceResponse invoice, String clientName, String patientName, String clinicLabel) {
 		try {
@@ -55,13 +57,18 @@ public class InvoicePdfService {
 			addHeaderCell(table, "Qty");
 			addHeaderCell(table, "Unit");
 			addHeaderCell(table, "Total");
-			for (InvoiceLineResponse line : invoice.lines()) {
-				table.addCell(cell(line.description()));
-				table.addCell(cell(formatQty(line.quantity())));
-				table.addCell(cell(money(line.unitPrice())));
-				table.addCell(cell(money(line.lineTotal())));
+			if (invoice.lines() == null || invoice.lines().isEmpty()) {
+				document.add(new Paragraph("No line items recorded on this invoice.", NORMAL));
 			}
-			document.add(table);
+			else {
+				for (InvoiceLineResponse line : invoice.lines()) {
+					table.addCell(cell(line.description()));
+					table.addCell(cell(formatQty(line.quantity())));
+					table.addCell(cell(money(line.unitPrice())));
+					table.addCell(cell(money(line.lineTotal())));
+				}
+				document.add(table);
+			}
 			document.add(new Paragraph(" "));
 			document.add(new Paragraph("Subtotal: " + money(invoice.subtotal()), NORMAL));
 			document.add(new Paragraph("Tax: " + money(invoice.taxTotal()), NORMAL));
@@ -71,15 +78,29 @@ public class InvoicePdfService {
 			document.add(new Paragraph("Thank you for visiting us.", SMALL));
 
 			document.close();
-			return output.toByteArray();
+			byte[] bytes = output.toByteArray();
+			if (bytes.length < 200) {
+				throw new IllegalStateException("Generated invoice PDF was unexpectedly small.");
+			}
+			return bytes;
 		}
 		catch (Exception exception) {
 			throw new IllegalStateException("Failed to generate invoice PDF.", exception);
 		}
 	}
 
+	private static Font font(String face, float size) {
+		try {
+			BaseFont base = BaseFont.createFont(face, BaseFont.WINANSI, BaseFont.EMBEDDED);
+			return new Font(base, size);
+		}
+		catch (Exception exception) {
+			return FontFactory.getFont(face, size);
+		}
+	}
+
 	private static void addHeaderCell(PdfPTable table, String text) {
-		PdfPCell cell = new PdfPCell(new Phrase(text, FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9)));
+		PdfPCell cell = new PdfPCell(new Phrase(text, HEADER));
 		cell.setHorizontalAlignment(Element.ALIGN_CENTER);
 		table.addCell(cell);
 	}

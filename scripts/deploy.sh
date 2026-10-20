@@ -45,6 +45,21 @@ fi
 
 echo "[+] Verified .env.production configuration."
 
+# 1b. WhatsApp API URL (Spring placeholder often breaks if phone id is only in META_WHATSAPP_PHONE_NUMBER_ID)
+set -a
+# shellcheck disable=SC1091
+source .env.production
+set +a
+if [ -n "${META_WHATSAPP_PHONE_NUMBER_ID:-}" ]; then
+  export VETOS_WHATSAPP_API_BASE_URL="https://graph.facebook.com/v23.0/${META_WHATSAPP_PHONE_NUMBER_ID}/messages"
+  echo "[+] WhatsApp messages URL set from META_WHATSAPP_PHONE_NUMBER_ID."
+else
+  echo "[!] WARNING: META_WHATSAPP_PHONE_NUMBER_ID is empty — WhatsApp sends will fail until you set it in .env.production."
+fi
+if [ -z "${META_WHATSAPP_TOKEN:-}" ]; then
+  echo "[!] WARNING: META_WHATSAPP_TOKEN is empty — WhatsApp sends will fail until you set it in .env.production."
+fi
+
 # 2. Check Docker and Docker Compose
 if ! command -v docker &> /dev/null; then
   echo "[-] Docker is not installed. Installing Docker..."

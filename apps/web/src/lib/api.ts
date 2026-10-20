@@ -286,6 +286,27 @@ export async function issueInvoice(body: Record<string, unknown>): Promise<Invoi
   return apiJson<InvoiceRow>("/api/v1/invoices", { method: "POST", body: JSON.stringify(body) });
 }
 
+export async function downloadInvoicePdf(invoiceId: string, invoiceNumber: string): Promise<void> {
+  await ensureCsrf();
+  const response = await fetchWithTimeout(`${apiUrl()}/api/v1/invoices/${invoiceId}/pdf`, {
+    method: "GET",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    const err = (await response.json().catch(() => null)) as ApiError | null;
+    throw new Error(err?.message ?? "Could not download invoice PDF.");
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `invoice-${invoiceNumber.replace(/[^a-zA-Z0-9._-]/g, "_")}.pdf`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 export async function recordPayment(invoiceId: string, amount: string, idempotencyKey: string, method: string = "UPI"): Promise<void> {
   await apiJson("/api/v1/payments", {
     method: "POST",
@@ -916,6 +937,16 @@ export type OutboxEvent = {
 
 export async function listOutboxEvents(limit = 50): Promise<OutboxEvent[]> {
   return apiJson<OutboxEvent[]>(`/api/v1/communications/outbox?limit=${limit}`);
+}
+
+export type WhatsAppIntegrationStatus = {
+  accessTokenConfigured: boolean;
+  phoneNumberIdConfigured: boolean;
+  messagesUrl: string;
+};
+
+export async function getWhatsAppIntegrationStatus(): Promise<WhatsAppIntegrationStatus> {
+  return apiJson<WhatsAppIntegrationStatus>("/api/v1/communications/whatsapp/status");
 }
 
 export async function sendWhatsApp(body: {

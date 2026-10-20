@@ -1,16 +1,20 @@
 @import "tailwindcss";
 
+#vetos-print-root {
+  display: none;
+}
+
 @media print {
-  body * {
-    visibility: hidden;
+  body.vetos-printing > *:not(#vetos-print-root) {
+    display: none !important;
   }
-  #printable-area, #printable-area * {
-    visibility: visible;
+
+  body.vetos-printing #vetos-print-root {
+    display: block !important;
   }
-  #printable-area {
-    position: absolute;
-    left: 0;
-    top: 0;
+
+  body.vetos-printing .vetos-printable-document {
+    position: static !important;
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 !important;
@@ -18,5 +22,8 @@
     border: none !important;
     box-shadow: none !important;
     background: white !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }

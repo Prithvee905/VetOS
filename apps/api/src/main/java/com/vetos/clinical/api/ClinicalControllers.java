@@ -1,8 +1,12 @@
 package com.vetos.clinical.api;
 
 import com.vetos.clinical.application.ClinicalWorkflowService;
+import com.vetos.clinical.application.ClinicalWorkflowService.ClientResponse;
+import com.vetos.clinical.application.ClinicalWorkflowService.InvoiceResponse;
+import com.vetos.clinical.application.ClinicalWorkflowService.PatientResponse;
 import com.vetos.identity.application.AuthorizationSupport;
 import com.vetos.identity.domain.VetosAuthentication;
+import com.vetos.integration.messaging.InvoicePdfService;
 import com.vetos.platform.api.RequestIds;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -11,7 +15,10 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -30,10 +37,15 @@ public class ClinicalControllers {
 
 	private final ClinicalWorkflowService clinicalWorkflowService;
 	private final AuthorizationSupport authorizationSupport;
+	private final InvoicePdfService invoicePdfService;
 
-	public ClinicalControllers(ClinicalWorkflowService clinicalWorkflowService, AuthorizationSupport authorizationSupport) {
+	public ClinicalControllers(
+			ClinicalWorkflowService clinicalWorkflowService,
+			AuthorizationSupport authorizationSupport,
+			InvoicePdfService invoicePdfService) {
 		this.clinicalWorkflowService = clinicalWorkflowService;
 		this.authorizationSupport = authorizationSupport;
+		this.invoicePdfService = invoicePdfService;
 	}
 
 	@GetMapping("/clients")
@@ -195,6 +207,37 @@ public class ClinicalControllers {
 				authentication.userId(),
 				new ClinicalWorkflowService.PrescriptionCreateRequest(body.consultationId(), body.notes(), body.items()),
 				RequestIds.from(request));
+	}
+
+	@GetMapping("/invoices/{invoiceId}/pdf")
+	public ResponseEntity<byte[]> downloadInvoicePdf(
+			@AuthenticationPrincipal VetosAuthentication authentication,
+			@PathVariable UUID invoiceId) {
+		authorizationSupport.requirePermission(authentication, "INVOICE_WRITE");
+		InvoiceResponse invoice = clinicalWorkflowService.getInvoice(authentication.clinicId(), invoiceId);
+		String clientName = "Pet Parent";
+		if (invoice.clientId() != null) {
+			ClientResponse client = clinicalWorkflowService.getClient(authentication.clinicId(), invoice.clientId());
+			if (client.displayName() != null && !client.displayName().isBlank()) {
+				clientName = client.displayName();
+			}
+		}
+		String patientName = null;
+		if (invoice.patientId() != null) {
+			try {
+				PatientResponse patient = clinicalWorkflowService.getPatient(authentication.clinicId(), invoice.patientId());
+				patientName = patient.name();
+			}
+			catch (Exception ignored) {
+			}
+		}
+		String clinicLabel = clinicalWorkflowService.clinicDisplayName(authentication.clinicId());
+		byte[] pdf = invoicePdfService.render(invoice, clientName, patientName, clinicLabel);
+		String filename = "invoice-" + invoice.invoiceNumber().replaceAll("[^a-zA-Z0-9._-]", "_") + ".pdf";
+		return ResponseEntity.ok()
+				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+				.contentType(MediaType.APPLICATION_PDF)
+				.body(pdf);
 	}
 
 	@PostMapping("/invoices")

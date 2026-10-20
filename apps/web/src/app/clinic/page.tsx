@@ -28,6 +28,7 @@ import {
   getClinicProfile,
   sendWhatsApp,
   sendEmail,
+  getWhatsAppIntegrationStatus,
   listVaccinations,
   recordVaccination,
   type SessionUser,
@@ -119,6 +120,12 @@ export default function ClinicOperationsStation() {
   const [completedReceipt, setCompletedReceipt] = useState<CompletedPaymentReceipt | null>(null);
   const [waSending, setWaSending] = useState(false);
   const [emailSending, setEmailSending] = useState(false);
+
+  const whatsAppStatus = useQuery({
+    queryKey: ["whatsapp-integration-status"],
+    queryFn: getWhatsAppIntegrationStatus,
+    staleTime: 60_000,
+  });
 
   const session = useQuery<SessionUser>({
     queryKey: ["session"],
@@ -1299,7 +1306,7 @@ export default function ClinicOperationsStation() {
       body: bodyPreview,
     });
     notifySuccess(
-      `Invoice #${invoiceNumber} queued for WhatsApp (+${formattedPhone}). Delivery usually takes under a minute — check Communications → Outbox if the customer does not receive it.`
+      `Invoice #${invoiceNumber} queued for WhatsApp (+${formattedPhone}). Open Communications → Outbox within a minute — status must show PROCESSED with a Meta message id, not FAILED (missing token/phone id shows there).`
     );
   }
 
@@ -2998,6 +3005,17 @@ export default function ClinicOperationsStation() {
       {/* ========================================================================= */}
       {canHandlePOS && activeTab === "pos" && (
         <div className="flex flex-col gap-6">
+          {whatsAppStatus.data &&
+            (!whatsAppStatus.data.accessTokenConfigured || !whatsAppStatus.data.phoneNumberIdConfigured) && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                <strong>WhatsApp is not fully configured on the server.</strong> Set{" "}
+                <code className="text-xs">META_WHATSAPP_TOKEN</code> and{" "}
+                <code className="text-xs">META_WHATSAPP_PHONE_NUMBER_ID</code> in{" "}
+                <code className="text-xs">.env.production</code>, then run{" "}
+                <code className="text-xs">./scripts/deploy.sh</code>. Until then, outbox sends will fail with a clear error.
+              </div>
+            )}
+
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h2 className="text-xl font-bold text-slate-900">Unified Invoice Basket & Clinic POS</h2>
@@ -4045,6 +4063,7 @@ export default function ClinicOperationsStation() {
           isOpen={posPrintOpen}
           onClose={() => setPosPrintOpen(false)}
           documentType="INVOICE"
+          invoiceId={issuedInvoice?.id || completedReceipt?.invoiceId}
           invoiceData={{
             invoiceNumber: issuedInvoice?.invoiceNumber || completedReceipt?.invoiceNumber || "",
             invoiceDate: completedReceipt?.dateStr || new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }),

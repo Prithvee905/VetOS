@@ -32,20 +32,14 @@ public class MetaWhatsAppMediaUploader {
 	}
 
 	public String uploadPdf(byte[] pdfBytes, String filename) {
-		String baseUrl = properties.whatsApp().apiBaseUrl();
+		WhatsAppMessagingSupport.requireLiveConfiguration(properties);
+		if (pdfBytes == null || pdfBytes.length < 200) {
+			throw new IllegalStateException("Invoice PDF is empty or too small to send on WhatsApp.");
+		}
 		String accessToken = properties.whatsApp().accessToken();
-		if (!StringUtils.hasText(baseUrl) || !StringUtils.hasText(accessToken)) {
-			log.warn("WhatsApp not configured; skipping media upload.");
-			return null;
-		}
-		String phoneNumberId = phoneNumberIdFromMessagesUrl(baseUrl);
-		if (!StringUtils.hasText(phoneNumberId)) {
-			log.warn("Could not parse phone number id from WhatsApp api base URL.");
-			return null;
-		}
-		String mediaUrl = baseUrl.replaceAll("/messages/?$", "/media");
-		if (!mediaUrl.endsWith("/media")) {
-			mediaUrl = "https://graph.facebook.com/v23.0/" + phoneNumberId + "/media";
+		String mediaUrl = WhatsAppMessagingSupport.resolveMediaUrl(properties);
+		if (!StringUtils.hasText(mediaUrl)) {
+			throw new IllegalStateException("Could not resolve Meta WhatsApp media upload URL.");
 		}
 
 		String safeName = StringUtils.hasText(filename) ? filename : "invoice.pdf";
@@ -69,6 +63,9 @@ public class MetaWhatsAppMediaUploader {
 					.retrieve()
 					.body(String.class);
 			String mediaId = extractMediaId(response);
+			if (!StringUtils.hasText(mediaId)) {
+				throw new IllegalStateException("Meta WhatsApp media upload did not return a media id.");
+			}
 			log.info("Uploaded WhatsApp document media id={} filename={}", mediaId, safeName);
 			return mediaId;
 		}
@@ -78,7 +75,7 @@ public class MetaWhatsAppMediaUploader {
 		}
 	}
 
-	static String phoneNumberIdFromMessagesUrl(String messagesUrl) {
+	public static String phoneNumberIdFromMessagesUrl(String messagesUrl) {
 		if (!StringUtils.hasText(messagesUrl)) {
 			return null;
 		}

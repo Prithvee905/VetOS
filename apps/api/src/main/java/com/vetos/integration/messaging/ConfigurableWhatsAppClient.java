@@ -32,21 +32,13 @@ public class ConfigurableWhatsAppClient implements WhatsAppClient {
 
 	@Override
 	public WhatsAppSendResult sendTemplateMessage(WhatsAppMessage message) {
-		String baseUrl = properties.whatsApp().apiBaseUrl();
-		if (!StringUtils.hasText(baseUrl)) {
-			log.info("WhatsApp stub send to={} template={} preview={}", message.toPhoneE164(), message.templateName(), message.bodyPreview());
-			return new WhatsAppSendResult(null);
-		}
+		WhatsAppMessagingSupport.requireLiveConfiguration(properties);
+		String baseUrl = WhatsAppMessagingSupport.resolveMessagesUrl(properties);
 		String accessToken = properties.whatsApp().accessToken();
-		if (!StringUtils.hasText(accessToken)) {
-			log.warn("WhatsApp access token not configured, skipping send to={}", message.toPhoneE164());
-			return new WhatsAppSendResult(null);
-		}
 
 		String cleanPhone = normalizePhone(message.toPhoneE164());
 		if (cleanPhone.isBlank()) {
-			log.warn("Cannot send WhatsApp message: recipient phone is empty.");
-			return new WhatsAppSendResult(null);
+			throw new IllegalArgumentException("WhatsApp recipient phone number is empty or invalid.");
 		}
 
 		ObjectNode body = objectMapper.createObjectNode();
@@ -118,7 +110,12 @@ public class ConfigurableWhatsAppClient implements WhatsAppClient {
 					.retrieve()
 					.body(String.class);
 			log.info("WhatsApp message dispatched to {} template={} meta response: {}", cleanPhone, message.templateName(), response);
-			return new WhatsAppSendResult(extractMessageId(response));
+			String messageId = extractMessageId(response);
+			if (!StringUtils.hasText(messageId)) {
+				throw new IllegalStateException(
+						"Meta WhatsApp API did not return a message id. Check token, phone number id, template name, and recipient allow-list.");
+			}
+			return new WhatsAppSendResult(messageId);
 		}
 		catch (Exception ex) {
 			log.error("Failed to send WhatsApp message to {}: {}", cleanPhone, ex.getMessage(), ex);

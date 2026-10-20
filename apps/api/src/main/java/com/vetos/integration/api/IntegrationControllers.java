@@ -5,7 +5,10 @@ import com.vetos.identity.domain.VetosAuthentication;
 import com.vetos.integration.application.CommunicationService;
 import com.vetos.integration.application.FileService;
 import com.vetos.integration.application.WebhookService;
+import com.vetos.integration.messaging.MetaWhatsAppMediaUploader;
+import com.vetos.integration.messaging.WhatsAppMessagingSupport;
 import com.vetos.integration.storage.BlobStorage;
+import com.vetos.platform.config.VetosProperties;
 import com.vetos.platform.api.ApiException;
 import com.vetos.platform.application.PlatformExpansionService;
 import jakarta.validation.Valid;
@@ -39,6 +42,7 @@ public class IntegrationControllers {
 	private final PlatformExpansionService platformExpansionService;
 	private final BlobStorage blobStorage;
 	private final AuthorizationSupport authorizationSupport;
+	private final VetosProperties vetosProperties;
 
 	public IntegrationControllers(
 			CommunicationService communicationService,
@@ -46,13 +50,28 @@ public class IntegrationControllers {
 			WebhookService webhookService,
 			PlatformExpansionService platformExpansionService,
 			BlobStorage blobStorage,
-			AuthorizationSupport authorizationSupport) {
+			AuthorizationSupport authorizationSupport,
+			VetosProperties vetosProperties) {
 		this.communicationService = communicationService;
 		this.fileService = fileService;
 		this.webhookService = webhookService;
 		this.platformExpansionService = platformExpansionService;
 		this.blobStorage = blobStorage;
 		this.authorizationSupport = authorizationSupport;
+		this.vetosProperties = vetosProperties;
+	}
+
+	@GetMapping("/communications/whatsapp/status")
+	public WhatsAppIntegrationStatus whatsAppStatus(@AuthenticationPrincipal VetosAuthentication authentication) {
+		authorizationSupport.requirePermission(authentication, "COMMUNICATION_SEND");
+		boolean tokenSet = vetosProperties.whatsApp().accessToken() != null
+				&& !vetosProperties.whatsApp().accessToken().isBlank();
+		String messagesUrl = WhatsAppMessagingSupport.resolveMessagesUrl(vetosProperties);
+		String phoneId = MetaWhatsAppMediaUploader.phoneNumberIdFromMessagesUrl(messagesUrl);
+		return new WhatsAppIntegrationStatus(tokenSet, phoneId != null && !phoneId.isBlank(), messagesUrl);
+	}
+
+	public record WhatsAppIntegrationStatus(boolean accessTokenConfigured, boolean phoneNumberIdConfigured, String messagesUrl) {
 	}
 
 	@PostMapping("/communications/whatsapp")

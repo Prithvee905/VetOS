@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { X, Printer, FileText, Receipt, CheckCircle, Sparkles } from "lucide-react";
+import { useRef, useState } from "react";
+import { X, Printer, FileText, Receipt, CheckCircle, Sparkles, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { printHtmlElement } from "@/lib/print-html";
+import { downloadInvoicePdf } from "@/lib/api";
 
 export type PrescriptionPrintData = {
   clinicName?: string;
@@ -64,6 +66,8 @@ type Props = {
   documentType: "PRESCRIPTION" | "INVOICE";
   prescriptionData?: PrescriptionPrintData;
   invoiceData?: InvoicePrintData;
+  /** When set, enables server-generated PDF download (issued invoices). */
+  invoiceId?: string;
 };
 
 export function PrintableDocumentModal({
@@ -72,13 +76,28 @@ export function PrintableDocumentModal({
   documentType,
   prescriptionData,
   invoiceData,
+  invoiceId,
 }: Props) {
   const [thermalMode, setThermalMode] = useState(false);
+  const [pdfDownloading, setPdfDownloading] = useState(false);
+  const printableRef = useRef<HTMLDivElement>(null);
 
   if (!isOpen) return null;
 
   const handlePrint = () => {
-    window.print();
+    const el = printableRef.current;
+    if (!el) return;
+    printHtmlElement(el);
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!invoiceId || !invoiceData?.invoiceNumber) return;
+    setPdfDownloading(true);
+    try {
+      await downloadInvoicePdf(invoiceId, invoiceData.invoiceNumber);
+    } finally {
+      setPdfDownloading(false);
+    }
   };
 
   const defaultClinicName = "PAWCARE SUPER SPECIALTY VETERINARY HOSPITAL";
@@ -127,9 +146,22 @@ export function PrintableDocumentModal({
               </button>
             )}
 
+            {documentType === "INVOICE" && invoiceId && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void handleDownloadPdf()}
+                disabled={pdfDownloading}
+                className="gap-1.5"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {pdfDownloading ? "Preparing…" : "Download PDF"}
+              </Button>
+            )}
+
             <Button size="sm" onClick={handlePrint} className="bg-teal-700 hover:bg-teal-800 text-white gap-1.5 shadow-xs">
               <Printer className="h-3.5 w-3.5" />
-              Print / Save PDF
+              Print
             </Button>
 
             <button
@@ -150,8 +182,8 @@ export function PrintableDocumentModal({
           {/* ============================================================== */}
           {documentType === "PRESCRIPTION" && prescriptionData && (
             <div
-              id="printable-area"
-              className="w-full max-w-2xl bg-white p-8 rounded-xl shadow-xs border border-slate-200/90 print:border-none print:shadow-none print:p-6 print:w-full"
+              ref={printableRef}
+              className="vetos-printable-document w-full max-w-2xl bg-white p-8 rounded-xl shadow-xs border border-slate-200/90 print:border-none print:shadow-none print:p-6 print:w-full"
             >
               {/* Header */}
               <div className="border-b-2 border-teal-700 pb-4 mb-4">
@@ -294,8 +326,8 @@ export function PrintableDocumentModal({
           {/* ============================================================== */}
           {documentType === "INVOICE" && invoiceData && (
             <div
-              id="printable-area"
-              className={`bg-white p-6 rounded-xl shadow-xs border border-slate-200/90 print:border-none print:shadow-none print:p-0 ${
+              ref={printableRef}
+              className={`vetos-printable-document bg-white p-6 rounded-xl shadow-xs border border-slate-200/90 print:border-none print:shadow-none print:p-0 ${
                 thermalMode
                   ? "w-80 text-[11px] font-mono leading-tight"
                   : "w-full max-w-2xl text-xs print:w-full"

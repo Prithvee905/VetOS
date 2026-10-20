@@ -82,6 +82,10 @@ public class ClinicalWorkflowService {
 				clinicId);
 	}
 
+	public String clinicDisplayName(UUID clinicId) {
+		return clinicRepository.findById(clinicId).map(com.vetos.clinic.infrastructure.ClinicEntity::getName).orElse("VetOS Clinic");
+	}
+
 	public ClientResponse getClient(UUID clinicId, UUID clientId) {
 		List<ClientResponse> rows = jdbcTemplate.query("""
 				select id, display_name, phone, email, notes, consent_whatsapp, consent_email, status, coalesce(category, 'STANDARD') as category, version

@@ -65,7 +65,17 @@ public class WhatsAppOutboxHandler implements OutboxHandler {
 		if (root.hasNonNull("invoiceId") && StringUtils.hasText(root.get("invoiceId").asText())) {
 			UUID invoiceId = UUID.fromString(root.get("invoiceId").asText());
 			InvoiceResponse invoice = clinicalWorkflowService.getInvoice(clinicId, invoiceId);
-			ClientResponse client = clinicalWorkflowService.getClient(clinicId, invoice.clientId());
+			String clientName = "Pet Parent";
+			if (invoice.clientId() != null) {
+				try {
+					ClientResponse client = clinicalWorkflowService.getClient(clinicId, invoice.clientId());
+					if (client.displayName() != null && !client.displayName().isBlank()) {
+						clientName = client.displayName();
+					}
+				}
+				catch (Exception ignored) {
+				}
+			}
 			String patientName = "";
 			if (invoice.patientId() != null) {
 				try {
@@ -75,13 +85,13 @@ public class WhatsAppOutboxHandler implements OutboxHandler {
 				catch (Exception ignored) {
 				}
 			}
-			String clientName = client.displayName();
 			if (templateParams.isEmpty()) {
-				templateParams.add(clientName == null || clientName.isBlank() ? "Pet Parent" : clientName);
+				templateParams.add(clientName);
 			}
 			if (!sessionMessage) {
 				templateKey = "INVOICE_PDF";
-				byte[] pdf = invoicePdfService.render(invoice, clientName, patientName, null);
+				String clinicLabel = clinicalWorkflowService.clinicDisplayName(clinicId);
+				byte[] pdf = invoicePdfService.render(invoice, clientName, patientName, clinicLabel);
 				headerDocumentFilename = safePdfFilename(invoice.invoiceNumber());
 				headerDocumentMediaId = mediaUploader.uploadPdf(pdf, headerDocumentFilename);
 				if (!StringUtils.hasText(headerDocumentMediaId)) {
