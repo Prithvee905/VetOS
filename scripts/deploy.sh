@@ -45,11 +45,11 @@ fi
 
 echo "[+] Verified .env.production configuration."
 
-# 1b. WhatsApp API URL (Spring placeholder often breaks if phone id is only in META_WHATSAPP_PHONE_NUMBER_ID)
-set -a
-# shellcheck disable=SC1091
-source .env.production
-set +a
+# 1b. WhatsApp API URL (do not "source" .env — tokens may contain shell-special characters)
+# shellcheck source=scripts/lib/read-env-var.sh
+source "$PROJECT_ROOT/scripts/lib/read-env-var.sh"
+META_WHATSAPP_PHONE_NUMBER_ID="$(read_env_var META_WHATSAPP_PHONE_NUMBER_ID .env.production || true)"
+META_WHATSAPP_TOKEN="$(read_env_var META_WHATSAPP_TOKEN .env.production || true)"
 if [ -n "${META_WHATSAPP_PHONE_NUMBER_ID:-}" ]; then
   export VETOS_WHATSAPP_API_BASE_URL="https://graph.facebook.com/v23.0/${META_WHATSAPP_PHONE_NUMBER_ID}/messages"
   echo "[+] WhatsApp messages URL set from META_WHATSAPP_PHONE_NUMBER_ID."

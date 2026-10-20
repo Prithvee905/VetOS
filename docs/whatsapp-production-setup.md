@@ -19,6 +19,9 @@ META_WHATSAPP_PHONE_NUMBER_ID=123456789012345
 VETOS_WHATSAPP_VERIFY_TOKEN=your-random-verify-token
 ```
 
+**Important:** Put the token on a **single line** with **no quotes** and no `Bearer ` prefix.  
+If Graph returns **OAuth 190 / Malformed access token**, the string in `.env.production` was corrupted (common when shell scripts `source` the file). Use `bash scripts/verify-whatsapp-token.sh` after editing.
+
 ## Webhook URL
 
 In Meta Developer Console → WhatsApp → Configuration:
