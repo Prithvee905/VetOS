@@ -36,7 +36,7 @@ public class MetaWhatsAppMediaUploader {
 		if (pdfBytes == null || pdfBytes.length < 200) {
 			throw new IllegalStateException("Invoice PDF is empty or too small to send on WhatsApp.");
 		}
-		String accessToken = properties.whatsApp().accessToken();
+		String accessToken = WhatsAppMessagingSupport.accessToken(properties);
 		String mediaUrl = WhatsAppMessagingSupport.resolveMediaUrl(properties);
 		if (!StringUtils.hasText(mediaUrl)) {
 			throw new IllegalStateException("Could not resolve Meta WhatsApp media upload URL.");

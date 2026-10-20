@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -68,8 +69,7 @@ public class IntegrationControllers {
 	@GetMapping("/communications/whatsapp/status")
 	public WhatsAppIntegrationStatus whatsAppStatus(@AuthenticationPrincipal VetosAuthentication authentication) {
 		authorizationSupport.requirePermission(authentication, "COMMUNICATION_SEND");
-		boolean tokenSet = vetosProperties.whatsApp().accessToken() != null
-				&& !vetosProperties.whatsApp().accessToken().isBlank();
+		boolean tokenSet = StringUtils.hasText(WhatsAppMessagingSupport.accessToken(vetosProperties));
 		String messagesUrl = WhatsAppMessagingSupport.resolveMessagesUrl(vetosProperties);
 		String phoneId = MetaWhatsAppMediaUploader.phoneNumberIdFromMessagesUrl(messagesUrl);
 		return new WhatsAppIntegrationStatus(tokenSet, phoneId != null && !phoneId.isBlank(), messagesUrl);

@@ -34,7 +34,7 @@ public class ConfigurableWhatsAppClient implements WhatsAppClient {
 	public WhatsAppSendResult sendTemplateMessage(WhatsAppMessage message) {
 		WhatsAppMessagingSupport.requireLiveConfiguration(properties);
 		String baseUrl = WhatsAppMessagingSupport.resolveMessagesUrl(properties);
-		String accessToken = properties.whatsApp().accessToken();
+		String accessToken = WhatsAppMessagingSupport.accessToken(properties);
 
 		String cleanPhone = normalizePhone(message.toPhoneE164());
 		if (cleanPhone.isBlank()) {

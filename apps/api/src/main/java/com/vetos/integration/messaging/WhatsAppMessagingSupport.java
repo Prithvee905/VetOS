@@ -10,8 +10,23 @@ public final class WhatsAppMessagingSupport {
 	private WhatsAppMessagingSupport() {
 	}
 
+	public static String normalizeAccessToken(String raw) {
+		if (raw == null) {
+			return "";
+		}
+		String trimmed = raw.trim();
+		if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+			trimmed = trimmed.substring(1, trimmed.length() - 1).trim();
+		}
+		return trimmed;
+	}
+
+	public static String accessToken(VetosProperties properties) {
+		return normalizeAccessToken(properties.whatsApp().accessToken());
+	}
+
 	public static void requireLiveConfiguration(VetosProperties properties) {
-		if (!StringUtils.hasText(properties.whatsApp().accessToken())) {
+		if (!StringUtils.hasText(accessToken(properties))) {
 			throw new IllegalStateException(
 					"META_WHATSAPP_TOKEN is not set on the API server. Add it to .env.production and redeploy.");
 		}

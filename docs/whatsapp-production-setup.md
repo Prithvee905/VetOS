@@ -36,3 +36,27 @@ Without tokens, the API **stubs** sends (log only). Use a tunnel (ngrok, Cloudfl
 ## Templates
 
 Approve templates listed in [whatsapp-meta-templates.md](./whatsapp-meta-templates.md) before sending reminders or campaigns.
+
+## Outbox shows `401 Unauthorized`
+
+Meta rejected the access token. The worker and UI are working; the token on the server is wrong or expired.
+
+1. **Do not use** the short-lived “temporary access token” from the API Setup page for production (it expires in ~24 hours).
+2. Create a **System User** token (recommended):
+   - [Meta Business Settings](https://business.facebook.com/settings) → **Users** → **System users** → your system user → **Generate token**
+   - Select your **ClinicOS / VetOS** app
+   - Permissions: `whatsapp_business_messaging`, `whatsapp_business_management`
+   - Copy the token once (starts with `EAA…`)
+3. On EC2, edit `.env.production`:
+   ```bash
+   META_WHATSAPP_TOKEN=EAApaste_here_no_quotes
+   META_WHATSAPP_PHONE_NUMBER_ID=from_whatsapp_api_setup
+   ```
+4. Recreate the API container so env is reloaded:
+   ```bash
+   cd ~/VetOS
+   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --force-recreate api
+   ```
+5. In the app: **Communications → Process queue now**, or send a new test `hello_world`.
+
+`PHONE_NUMBER_ID` must belong to the same WhatsApp Business Account as the token.
