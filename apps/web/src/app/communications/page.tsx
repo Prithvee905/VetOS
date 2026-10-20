@@ -60,7 +60,7 @@ export default function CommunicationsHubPage() {
   // Direct dispatch states
   const [selectedClientPatientId, setSelectedClientPatientId] = useState("");
   const [waPhone, setWaPhone] = useState("");
-  const [waTemplate, setWaTemplate] = useState("hello_world");
+  const [waTemplate, setWaTemplate] = useState("CLINIC_UPDATE");
   const [waBody, setWaBody] = useState("Hello from your veterinary clinic.");
 
   const [emailTo, setEmailTo] = useState("");
@@ -191,9 +191,6 @@ export default function CommunicationsHubPage() {
   }
 
   function effectiveTemplateForTab(tab: CampaignTab): string {
-    if (!dailyRemindersEnabled) {
-      return "hello_world";
-    }
     return templateForTab(tab);
   }
 
@@ -544,9 +541,9 @@ export default function CommunicationsHubPage() {
                     value={waTemplate}
                     onChange={(e) => setWaTemplate(e.target.value)}
                   >
-                    <option value="hello_world">hello_world (recommended until custom templates are Active)</option>
+                    <option value="CLINIC_UPDATE">CLINIC_UPDATE (→ campaign_notice)</option>
                     <option value="INVOICE_PDF">INVOICE_PDF (clinic POS only — requires invoice id)</option>
-                    <option value="CLINIC_UPDATE">CLINIC_UPDATE (→ campaign_notice, must be Active in Meta)</option>
+                    <option value="hello_world">hello_world (test numbers only — banned on live numbers)</option>
                     <option value="FOLLOWUP_REMINDER">FOLLOWUP_REMINDER (Clinical Follow-up)</option>
                     <option value="VAX_REMINDER">VAX_REMINDER (Vaccine Due)</option>
                     <option value="DEWORM_REMINDER">DEWORM_REMINDER (Parasite Prevention)</option>
