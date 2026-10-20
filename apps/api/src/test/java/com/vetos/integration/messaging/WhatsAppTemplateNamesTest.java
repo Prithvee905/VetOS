@@ -17,4 +17,14 @@ class WhatsAppTemplateNamesTest {
 		assertThat(WhatsAppTemplateNames.toMetaTemplateName("INVOICE_ALERT")).isEqualTo("campaign_notice");
 	}
 
+	@Test
+	void imageHeaderTemplatesAreDetected() {
+		assertThat(WhatsAppTemplateNames.requiresImageHeader("campaign_notice")).isTrue();
+		assertThat(WhatsAppTemplateNames.requiresImageHeader("followup_reminder")).isTrue();
+		assertThat(WhatsAppTemplateNames.requiresImageHeader("deworm_due")).isTrue();
+		assertThat(WhatsAppTemplateNames.requiresImageHeader("invoice_pdf_alert")).isFalse();
+		assertThat(WhatsAppTemplateNames.requiresImageHeader("hello_world")).isFalse();
+		assertThat(WhatsAppTemplateNames.requiresImageHeader(null)).isFalse();
+	}
+
 }

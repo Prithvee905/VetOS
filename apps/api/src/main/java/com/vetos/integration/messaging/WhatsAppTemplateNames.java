@@ -5,6 +5,14 @@ public final class WhatsAppTemplateNames {
 	private WhatsAppTemplateNames() {
 	}
 
+	public static boolean requiresImageHeader(String metaTemplateName) {
+		if (metaTemplateName == null) return false;
+		return switch (metaTemplateName) {
+			case "campaign_notice", "followup_reminder", "deworm_due" -> true;
+			default -> false;
+		};
+	}
+
 	public static String toMetaTemplateName(String logicalTemplate) {
 		if (logicalTemplate == null || logicalTemplate.isBlank()) {
 			return "campaign_notice";
