@@ -15,9 +15,9 @@ public final class WhatsAppTemplateNames {
 		}
 		return switch (key.toUpperCase()) {
 			case "INVOICE_PDF" -> "invoice_pdf_alert";
-			case "INVOICE_ALERT" -> "invoice_alert";
-			case "APPOINTMENT_REMINDER" -> "appointment_reminder";
-			case "VAX_REMINDER" -> "vax_due";
+			case "INVOICE_ALERT" -> "campaign_notice";
+			case "APPOINTMENT_REMINDER" -> "followup_reminder";
+			case "VAX_REMINDER" -> "campaign_notice";
 			case "DEWORM_REMINDER" -> "deworm_due";
 			case "FOLLOWUP_REMINDER" -> "followup_reminder";
 			default -> {
