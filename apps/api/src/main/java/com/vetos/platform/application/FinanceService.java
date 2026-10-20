@@ -120,6 +120,35 @@ public class FinanceService {
 				expensesByCategory);
 	}
 
+	public List<DailyRevenuePoint> getDailyRevenue(UUID clinicId, int days) {
+		return jdbcTemplate.query("""
+				with date_series as (
+				    select generate_series(
+				        current_date - ((?::int - 1) * interval '1 day'),
+				        current_date,
+				        interval '1 day'
+				    )::date as day
+				)
+				select
+				    d.day,
+				    coalesce(sum(i.total), 0)       as invoiced,
+				    coalesce(sum(i.amount_paid), 0) as collected
+				from date_series d
+				left join invoices i
+				    on i.clinic_id = ?
+				    and i.status   <> 'VOID'
+				    and i.created_at::date = d.day
+				group by d.day
+				order by d.day
+				""",
+				(rs, rowNum) -> new DailyRevenuePoint(
+						rs.getDate("day").toLocalDate(),
+						rs.getBigDecimal("invoiced"),
+						rs.getBigDecimal("collected")),
+				days, clinicId);
+	}
+
+	public record DailyRevenuePoint(LocalDate date, BigDecimal invoiced, BigDecimal collected) {}
 	public record ExpenseDto(UUID id, UUID branchId, String category, BigDecimal amount, LocalDate incurredOn, String notes, Instant createdAt) {}
 	public record ExpenseCreateRequest(UUID branchId, String category, BigDecimal amount, LocalDate incurredOn, String notes) {}
 

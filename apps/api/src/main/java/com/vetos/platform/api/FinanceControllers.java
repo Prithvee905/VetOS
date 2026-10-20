@@ -57,6 +57,15 @@ public class FinanceControllers {
 		return financeService.getFinancialSummary(auth.clinicId());
 	}
 
+	@GetMapping("/analytics/daily-revenue")
+	public List<FinanceService.DailyRevenuePoint> getDailyRevenue(
+			@AuthenticationPrincipal VetosAuthentication auth,
+			@RequestParam(defaultValue = "30") int days) {
+		authorizationSupport.requirePermission(auth, "EXPENSE_WRITE");
+		int clampedDays = Math.min(Math.max(days, 7), 90);
+		return financeService.getDailyRevenue(auth.clinicId(), clampedDays);
+	}
+
 	public record ExpenseCreateBody(
 			UUID branchId,
 			@NotBlank String category,

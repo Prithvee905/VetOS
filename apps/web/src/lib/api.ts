@@ -812,6 +812,12 @@ export async function getFinancialSummary(): Promise<FinancialSummary> {
   return apiJson<FinancialSummary>("/api/v1/analytics/financial");
 }
 
+export type DailyRevenuePoint = { date: string; invoiced: number; collected: number };
+
+export async function getDailyRevenue(days = 30): Promise<DailyRevenuePoint[]> {
+  return apiJson<DailyRevenuePoint[]>(`/api/v1/analytics/daily-revenue?days=${days}`);
+}
+
 // ----------------------------------------------------
 // Branches
 // ----------------------------------------------------
