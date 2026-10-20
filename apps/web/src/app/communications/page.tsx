@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   listOutboxEvents,
+  processOutboxNow,
   sendEmail,
   sendWhatsApp,
   triggerReminders,
@@ -114,6 +115,22 @@ export default function CommunicationsHubPage() {
     queryFn: () => listOutboxEvents(50),
     refetchInterval: 4_000,
   });
+
+  const processOutboxMutation = useMutation({
+    mutationFn: processOutboxNow,
+    onSuccess: async (result) => {
+      setMessage(`Outbox worker ran: ${result.eventsProcessed} event(s) processed.`);
+      await queryClient.invalidateQueries({ queryKey: ["outbox-events"] });
+    },
+    onError: (err: unknown) => {
+      setMessage(err instanceof Error ? err.message : "Could not run outbox worker.");
+    },
+  });
+
+  async function refreshOutboxMonitor() {
+    await queryClient.invalidateQueries({ queryKey: ["outbox-events"] });
+    await outbox.refetch();
+  }
 
   // Client + Patient merged list for easy auto-complete
   const petParentOptions = useMemo(() => {
@@ -310,7 +327,7 @@ export default function CommunicationsHubPage() {
             size="sm"
             variant="outline"
             onClick={() => {
-              queryClient.invalidateQueries({ queryKey: ["outbox-events"] });
+              void refreshOutboxMonitor();
               queryClient.invalidateQueries({ queryKey: ["reminder-cohorts"] });
             }}
           >
@@ -1014,9 +1031,21 @@ export default function CommunicationsHubPage() {
             <h3 className="text-base font-bold text-slate-900">Asynchronous Outbox Events Monitor</h3>
             <p className="text-xs text-slate-500">Live delivery queue processed by background workers (claim lock pattern)</p>
           </div>
-          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
-            Worker Live (4s)
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
+              Auto-refresh 4s
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs h-8"
+              disabled={processOutboxMutation.isPending}
+              onClick={() => processOutboxMutation.mutate()}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 mr-1 ${processOutboxMutation.isPending ? "animate-spin" : ""}`} />
+              {processOutboxMutation.isPending ? "Processing…" : "Process queue now"}
+            </Button>
+          </div>
         </div>
 
         {outbox.isLoading ? (
@@ -1031,6 +1060,7 @@ export default function CommunicationsHubPage() {
                   <th className="px-3 py-2.5">Event Type</th>
                   <th className="px-3 py-2.5">Status</th>
                   <th className="px-3 py-2.5">Attempts</th>
+                  <th className="px-3 py-2.5">Last error</th>
                   <th className="px-3 py-2.5">Created At</th>
                   <th className="px-3 py-2.5">Processed At</th>
                   <th className="px-3 py-2.5">WhatsApp delivery</th>
@@ -1040,6 +1070,11 @@ export default function CommunicationsHubPage() {
                 {outbox.data?.map((ev: OutboxEvent) => {
                   const isProcessed = ev.status === "PROCESSED";
                   const isFailed = ev.status === "FAILED";
+                  const isProcessing = ev.status === "PROCESSING";
+                  const retryNote =
+                    ev.status === "PENDING" && ev.nextAttemptAt
+                      ? ` (retry after ${new Date(ev.nextAttemptAt).toLocaleTimeString()})`
+                      : "";
                   return (
                     <tr key={ev.id} className="hover:bg-slate-50/70">
                       <td className="px-3 py-2.5 font-mono font-bold text-slate-900">{ev.eventType}</td>
@@ -1050,13 +1085,19 @@ export default function CommunicationsHubPage() {
                               ? "bg-emerald-100 text-emerald-800"
                               : isFailed
                               ? "bg-rose-100 text-rose-800"
+                              : isProcessing
+                              ? "bg-sky-100 text-sky-800"
                               : "bg-amber-100 text-amber-800"
                           }`}
                         >
                           {ev.status}
+                          {retryNote}
                         </span>
                       </td>
-                      <td className="px-3 py-2.5 font-mono">{ev.retryCount}</td>
+                      <td className="px-3 py-2.5 font-mono">{ev.attemptCount ?? 0}</td>
+                      <td className="px-3 py-2.5 text-rose-700 max-w-xs truncate" title={ev.lastError ?? ""}>
+                        {ev.lastError ?? "—"}
+                      </td>
                       <td className="px-3 py-2.5 text-slate-500">{new Date(ev.createdAt).toLocaleString()}</td>
                       <td className="px-3 py-2.5 text-slate-500">
                         {ev.processedAt ? new Date(ev.processedAt).toLocaleString() : "—"}

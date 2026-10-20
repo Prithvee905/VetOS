@@ -32,6 +32,7 @@ public class OutboxProcessor {
 	}
 
 	public int processPending(int limit) {
+		reclaimStuckProcessing();
 		List<ClaimedEvent> claimed = jdbcTemplate.query(
 				"select * from app.claim_outbox_events(?)",
 				(rs, rowNum) -> new ClaimedEvent(
@@ -61,6 +62,17 @@ public class OutboxProcessor {
 			processed++;
 		}
 		return processed;
+	}
+
+	/** Events left in PROCESSING after a crash are never claimed again; move them back to PENDING. */
+	private void reclaimStuckProcessing() {
+		jdbcTemplate.update("""
+				update outbox_events
+				set status = 'PENDING',
+				    last_error = coalesce(last_error, 'Re-queued after interrupted processing')
+				where status = 'PROCESSING'
+				  and created_at < now() - interval '10 minutes'
+				""");
 	}
 
 	private void markProcessed(UUID id) {

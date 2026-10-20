@@ -927,16 +927,20 @@ export type OutboxEvent = {
   deliveryStatus?: string | null;
   id: string;
   eventType: string;
-  payload: Record<string, unknown>;
   status: string;
   createdAt: string;
   processedAt: string | null;
-  retryCount: number;
+  attemptCount: number;
   lastError: string | null;
+  nextAttemptAt: string | null;
 };
 
 export async function listOutboxEvents(limit = 50): Promise<OutboxEvent[]> {
   return apiJson<OutboxEvent[]>(`/api/v1/communications/outbox?limit=${limit}`);
+}
+
+export async function processOutboxNow(): Promise<{ eventsProcessed: number }> {
+  return apiJson<{ eventsProcessed: number }>("/api/v1/communications/outbox/process-now", { method: "POST" });
 }
 
 export type WhatsAppIntegrationStatus = {

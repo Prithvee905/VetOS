@@ -50,7 +50,7 @@ public class CommunicationService {
 		int safeLimit = Math.min(Math.max(limit, 1), 100);
 		return jdbcTemplate.query("""
 				select id, event_type, status, attempt_count, last_error, created_at, processed_at,
-				       provider_message_id, delivery_status
+				       provider_message_id, delivery_status, next_attempt_at
 				from outbox_events
 				where clinic_id = ?
 				order by created_at desc
@@ -65,7 +65,8 @@ public class CommunicationService {
 						rs.getTimestamp("created_at").toInstant(),
 						rs.getTimestamp("processed_at") == null ? null : rs.getTimestamp("processed_at").toInstant(),
 						rs.getString("provider_message_id"),
-						rs.getString("delivery_status")),
+						rs.getString("delivery_status"),
+						rs.getTimestamp("next_attempt_at") == null ? null : rs.getTimestamp("next_attempt_at").toInstant()),
 				clinicId, safeLimit);
 	}
 
@@ -120,6 +121,7 @@ public class CommunicationService {
 			Instant createdAt,
 			Instant processedAt,
 			String providerMessageId,
-			String deliveryStatus) {
+			String deliveryStatus,
+			Instant nextAttemptAt) {
 	}
 }

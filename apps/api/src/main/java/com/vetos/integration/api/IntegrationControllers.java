@@ -5,6 +5,7 @@ import com.vetos.identity.domain.VetosAuthentication;
 import com.vetos.integration.application.CommunicationService;
 import com.vetos.integration.application.FileService;
 import com.vetos.integration.application.WebhookService;
+import com.vetos.integration.outbox.OutboxProcessor;
 import com.vetos.integration.messaging.MetaWhatsAppMediaUploader;
 import com.vetos.integration.messaging.WhatsAppMessagingSupport;
 import com.vetos.integration.storage.BlobStorage;
@@ -43,6 +44,7 @@ public class IntegrationControllers {
 	private final BlobStorage blobStorage;
 	private final AuthorizationSupport authorizationSupport;
 	private final VetosProperties vetosProperties;
+	private final OutboxProcessor outboxProcessor;
 
 	public IntegrationControllers(
 			CommunicationService communicationService,
@@ -51,7 +53,8 @@ public class IntegrationControllers {
 			PlatformExpansionService platformExpansionService,
 			BlobStorage blobStorage,
 			AuthorizationSupport authorizationSupport,
-			VetosProperties vetosProperties) {
+			VetosProperties vetosProperties,
+			OutboxProcessor outboxProcessor) {
 		this.communicationService = communicationService;
 		this.fileService = fileService;
 		this.webhookService = webhookService;
@@ -59,6 +62,7 @@ public class IntegrationControllers {
 		this.blobStorage = blobStorage;
 		this.authorizationSupport = authorizationSupport;
 		this.vetosProperties = vetosProperties;
+		this.outboxProcessor = outboxProcessor;
 	}
 
 	@GetMapping("/communications/whatsapp/status")
@@ -110,6 +114,16 @@ public class IntegrationControllers {
 			@RequestParam(defaultValue = "50") int limit) {
 		authorizationSupport.requirePermission(authentication, "COMMUNICATION_SEND");
 		return communicationService.listOutboxEvents(authentication.clinicId(), limit);
+	}
+
+	@PostMapping("/communications/outbox/process-now")
+	public OutboxProcessResult processOutboxNow(@AuthenticationPrincipal VetosAuthentication authentication) {
+		authorizationSupport.requirePermission(authentication, "COMMUNICATION_SEND");
+		int processed = outboxProcessor.processPending(50);
+		return new OutboxProcessResult(processed);
+	}
+
+	public record OutboxProcessResult(int eventsProcessed) {
 	}
 
 	@PostMapping(value = "/files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
