@@ -17,12 +17,12 @@ import {
   type Product,
   type PrescriptionSummary,
   type SessionUser,
+  type BranchPage,
 } from "@/lib/api";
 import {
   Package,
   AlertTriangle,
   Clock,
-  TrendingDown,
   Plus,
   RefreshCw,
   ChevronDown,
@@ -91,7 +91,7 @@ export default function PharmacyPage() {
   const expiringQ = useQuery<InventoryBatch[]>({ queryKey: ["pharmacy-expiring"], queryFn: () => listBatches({ expiringOnly: true }) });
   const movementsQ = useQuery<StockMovement[]>({ queryKey: ["pharmacy-movements"], queryFn: () => listAllMovements(100) });
   const productsQ = useQuery<Product[]>({ queryKey: ["products"], queryFn: () => listProducts() });
-  const branchesQ = useQuery({ queryKey: ["branches"], queryFn: listBranches });
+  const branchesQ = useQuery<BranchPage>({ queryKey: ["branches"], queryFn: () => listBranches() });
   const rxQ = useQuery<PrescriptionSummary[]>({ queryKey: ["prescriptions-pending"], queryFn: () => listPrescriptions("PENDING") });
 
   const batches = batchesQ.data ?? [];
