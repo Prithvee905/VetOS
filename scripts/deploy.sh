@@ -23,10 +23,10 @@ if git rev-parse --is-inside-work-tree &>/dev/null; then
     REMOTE_SHA="$(git rev-parse origin/main)"
     if [ "$LOCAL_SHA" != "$REMOTE_SHA" ]; then
       echo "[!] Local $LOCAL_SHA is behind origin/main $REMOTE_SHA — updating..."
-      git pull --ff-only origin main || {
-        echo "[-] git pull failed. Fix conflicts or run: git reset --hard origin/main"
-        exit 1
-      }
+      if ! git pull --ff-only origin main 2>/dev/null; then
+        echo "[!] git pull failed (local edits on server). Resetting to origin/main..."
+        git reset --hard origin/main
+      fi
     fi
   fi
   export GIT_COMMIT="$(git rev-parse --short HEAD)"
