@@ -44,24 +44,43 @@ public class OutboxProcessor {
 				limit);
 		int processed = 0;
 		for (ClaimedEvent event : claimed) {
-			transactionTemplate.executeWithoutResult(status -> {
-				tenantTransactionSupport.setClinic(event.clinicId());
-				OutboxHandler handler = handlersByType.get(event.eventType());
-				if (handler == null) {
-					markFailed(event.id(), "No handler for " + event.eventType(), event.attemptCount());
-					return;
-				}
-				try {
-					handler.handle(event.clinicId(), event.id(), event.payloadJson());
-					markProcessed(event.id());
-				}
-				catch (Exception exception) {
-					markFailed(event.id(), exception.getMessage(), event.attemptCount());
-				}
-			});
+			String error = runHandler(event);
+			if (error != null) {
+				// Separate transaction: a SQL error inside the handler aborts its transaction in Postgres.
+				transactionTemplate.executeWithoutResult(status -> {
+					tenantTransactionSupport.setClinic(event.clinicId());
+					markFailed(event.id(), error, event.attemptCount());
+				});
+			}
 			processed++;
 		}
 		return processed;
+	}
+
+	private String runHandler(ClaimedEvent event) {
+		OutboxHandler handler = handlersByType.get(event.eventType());
+		if (handler == null) {
+			return "No handler for " + event.eventType();
+		}
+		try {
+			transactionTemplate.executeWithoutResult(status -> {
+				tenantTransactionSupport.setClinic(event.clinicId());
+				try {
+					handler.handle(event.clinicId(), event.id(), event.payloadJson());
+				}
+				catch (RuntimeException exception) {
+					throw exception;
+				}
+				catch (Exception exception) {
+					throw new IllegalStateException(exception.getMessage(), exception);
+				}
+				markProcessed(event.id());
+			});
+			return null;
+		}
+		catch (Exception exception) {
+			return exception.getMessage() != null ? exception.getMessage() : exception.getClass().getSimpleName();
+		}
 	}
 
 	/** Events left in PROCESSING after a crash are never claimed again; move them back to PENDING. */

@@ -69,8 +69,9 @@ class OutboxProcessorTest extends ApiIntegrationTest {
 					"{\"exportJobId\":\"" + exportId + "\"}");
 		});
 
-		int processed = outboxProcessor.processPending(5);
-		assertThat(processed).isEqualTo(1);
+		// The claim is global, so events left by other test classes may be processed too.
+		int processed = outboxProcessor.processPending(100);
+		assertThat(processed).isGreaterThanOrEqualTo(1);
 
 		transactionTemplate.executeWithoutResult(status -> {
 			tenantTransactionSupport.setClinic(clinicId);
