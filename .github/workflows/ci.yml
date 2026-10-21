@@ -32,7 +32,24 @@ jobs:
         run: chmod +x apps/api/mvnw
       - name: Test API
         working-directory: apps/api
-        run: ./mvnw -B test "-Dsurefire.useFile=false"
+        shell: bash
+        run: |
+          set -o pipefail
+          ./mvnw -B test "-Dsurefire.useFile=false" 2>&1 | tee mvn.log
+      - name: Annotate test failures
+        if: failure()
+        working-directory: apps/api
+        shell: bash
+        run: |
+          msg=$(grep -E '^\[ERROR\]' mvn.log | head -40 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+          echo "::error title=Maven errors::${msg:-no [ERROR] lines found}"
+          for f in target/surefire-reports/TEST-*.xml; do
+            [ -f "$f" ] || continue
+            if grep -qE '<(failure|error)' "$f"; then
+              detail=$(grep -A12 -E '<(failure|error)' "$f" | head -c 4000 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+              echo "::error title=$(basename "$f")::${detail}"
+            fi
+          done
       - name: Upload Surefire Reports
         if: failure()
         uses: actions/upload-artifact@v4
