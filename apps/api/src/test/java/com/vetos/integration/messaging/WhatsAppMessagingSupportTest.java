@@ -16,7 +16,7 @@ class WhatsAppMessagingSupportTest {
 				null,
 				null,
 				null,
-				new VetosProperties.WhatsApp("https://graph.facebook.com/v23.0//messages", "", "token", ""),
+				new VetosProperties.WhatsApp("https://graph.facebook.com/v23.0//messages", "", "token", "", ""),
 				null,
 				null,
 				null);

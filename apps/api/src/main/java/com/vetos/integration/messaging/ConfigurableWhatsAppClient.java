@@ -86,10 +86,20 @@ public class ConfigurableWhatsAppClient implements WhatsAppClient {
 					document.put("filename", message.headerDocumentFilename());
 				}
 			} else if (WhatsAppTemplateNames.requiresImageHeader(metaName)) {
+				String imageMediaId = StringUtils.hasText(message.headerImageLink()) ? null
+						: properties.whatsApp().defaultImageMediaId();
 				String imageLink = StringUtils.hasText(message.headerImageLink())
 						? message.headerImageLink()
 						: properties.whatsApp().defaultImageUrl();
-				if (StringUtils.hasText(imageLink)) {
+				if (StringUtils.hasText(imageMediaId)) {
+					componentsArray = template.putArray("components");
+					ObjectNode headerComponent = componentsArray.addObject();
+					headerComponent.put("type", "header");
+					ArrayNode headerParameters = headerComponent.putArray("parameters");
+					ObjectNode imgParam = headerParameters.addObject();
+					imgParam.put("type", "image");
+					imgParam.putObject("image").put("id", imageMediaId);
+				} else if (StringUtils.hasText(imageLink)) {
 					componentsArray = template.putArray("components");
 					ObjectNode headerComponent = componentsArray.addObject();
 					headerComponent.put("type", "header");
@@ -98,7 +108,7 @@ public class ConfigurableWhatsAppClient implements WhatsAppClient {
 					imgParam.put("type", "image");
 					imgParam.putObject("image").put("link", imageLink);
 				} else {
-					log.warn("Template {} requires an IMAGE header but VETOS_WHATSAPP_DEFAULT_IMAGE_URL is not set; header omitted, expect Meta error #132012", metaName);
+					log.warn("Template {} requires IMAGE header; set VETOS_WHATSAPP_DEFAULT_IMAGE_MEDIA_ID or VETOS_WHATSAPP_DEFAULT_IMAGE_URL", metaName);
 				}
 			}
 			if (!params.isEmpty()) {

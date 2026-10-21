@@ -26,7 +26,7 @@ public record VetosProperties(Jwt jwt, Security security, Cors cors, Dev dev, Wo
 			storage = new Storage("local", "./.vetos-blobs", null, null, null, null, null);
 		}
 		if (whatsApp == null) {
-			whatsApp = new WhatsApp("", "", "", "");
+			whatsApp = new WhatsApp("", "", "", "", "");
 		}
 		if (email == null) {
 			email = new Email("", "noreply@clinic.local", "");
@@ -60,7 +60,7 @@ public record VetosProperties(Jwt jwt, Security security, Cors cors, Dev dev, Wo
 	public record Redis(boolean enabled) {
 	}
 
-	public record WhatsApp(String apiBaseUrl, String verifyToken, String accessToken, String defaultImageUrl) {
+	public record WhatsApp(String apiBaseUrl, String verifyToken, String accessToken, String defaultImageUrl, String defaultImageMediaId) {
 	}
 
 	public record Email(String apiBaseUrl, String fromAddress, String apiKey) {
