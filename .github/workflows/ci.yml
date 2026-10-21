@@ -14,11 +14,25 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+      - name: Cache postgres Docker image
+        id: docker-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/docker-postgres.tar
+          key: docker-postgres-17
+      - name: Load or pull postgres:17
+        run: |
+          if [ -f /tmp/docker-postgres.tar ]; then
+            docker load -i /tmp/docker-postgres.tar
+          else
+            docker pull postgres:17
+            docker save postgres:17 -o /tmp/docker-postgres.tar
+          fi
       - name: Make Maven Wrapper Executable
         run: chmod +x apps/api/mvnw
       - name: Test API
         working-directory: apps/api
-        run: ./mvnw -B test -Dsurefire.useFile=false
+        run: ./mvnw -B test "-Dsurefire.useFile=false"
       - name: Upload Surefire Reports
         if: failure()
         uses: actions/upload-artifact@v4
