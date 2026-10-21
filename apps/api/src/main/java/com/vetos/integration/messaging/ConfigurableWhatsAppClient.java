@@ -68,6 +68,7 @@ public class ConfigurableWhatsAppClient implements WhatsAppClient {
 			if (params.isEmpty() && StringUtils.hasText(message.bodyPreview())) {
 				params = fallbackParamsFromBody(metaName, message.bodyPreview());
 			}
+			params = fitParamCount(params, WhatsAppTemplateNames.bodyParamCount(metaName));
 			body.put("type", "template");
 			ObjectNode template = body.putObject("template");
 			template.put("name", metaName);
@@ -166,6 +167,17 @@ public class ConfigurableWhatsAppClient implements WhatsAppClient {
 		return cleanPhone;
 	}
 
+	static List<String> fitParamCount(List<String> params, int expected) {
+		if (expected < 0 || params.size() == expected) {
+			return params;
+		}
+		List<String> fitted = new ArrayList<>(params.subList(0, Math.min(params.size(), expected)));
+		while (fitted.size() < expected) {
+			fitted.add("-");
+		}
+		return fitted;
+	}
+
 	private List<String> fallbackParamsFromBody(String metaName, String bodyPreview) {
 		List<String> params = new ArrayList<>();
 		params.add("Pet Parent");
@@ -175,7 +187,8 @@ public class ConfigurableWhatsAppClient implements WhatsAppClient {
 		}
 		else {
 			params.add("your pet");
-			params.add(bodyPreview.length() > 80 ? bodyPreview.substring(0, 80) : bodyPreview);
+			params.add("our vet team");
+			params.add("soon");
 		}
 		return params;
 	}

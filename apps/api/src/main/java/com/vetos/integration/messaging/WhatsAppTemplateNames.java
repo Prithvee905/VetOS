@@ -13,6 +13,16 @@ public final class WhatsAppTemplateNames {
 		};
 	}
 
+	/** Body {{n}} placeholder count of each approved Meta template, or -1 if unknown. Must match Meta exactly. */
+	public static int bodyParamCount(String metaTemplateName) {
+		if (metaTemplateName == null) return -1;
+		return switch (metaTemplateName) {
+			case "campaign_notice" -> 3;
+			case "followup_reminder", "deworm_due" -> 4;
+			default -> -1;
+		};
+	}
+
 	public static String toMetaTemplateName(String logicalTemplate) {
 		if (logicalTemplate == null || logicalTemplate.isBlank()) {
 			return "campaign_notice";

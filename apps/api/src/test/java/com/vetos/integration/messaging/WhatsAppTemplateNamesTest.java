@@ -18,6 +18,16 @@ class WhatsAppTemplateNamesTest {
 	}
 
 	@Test
+	void paramsAreFittedToTemplatePlaceholderCount() {
+		assertThat(ConfigurableWhatsAppClient.fitParamCount(java.util.List.of("a", "b", "c"),
+				WhatsAppTemplateNames.bodyParamCount("followup_reminder"))).containsExactly("a", "b", "c", "-");
+		assertThat(ConfigurableWhatsAppClient.fitParamCount(java.util.List.of("a", "b", "c", "d"),
+				WhatsAppTemplateNames.bodyParamCount("campaign_notice"))).containsExactly("a", "b", "c");
+		assertThat(ConfigurableWhatsAppClient.fitParamCount(java.util.List.of("a"),
+				WhatsAppTemplateNames.bodyParamCount("invoice_pdf_alert"))).containsExactly("a");
+	}
+
+	@Test
 	void imageHeaderTemplatesAreDetected() {
 		assertThat(WhatsAppTemplateNames.requiresImageHeader("campaign_notice")).isTrue();
 		assertThat(WhatsAppTemplateNames.requiresImageHeader("followup_reminder")).isTrue();

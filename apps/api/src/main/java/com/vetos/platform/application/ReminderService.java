@@ -98,7 +98,7 @@ public class ReminderService {
 						" has a veterinary appointment on " + a.startsAt() + ".";
 				communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
 						a.phone(), "APPOINTMENT_REMINDER", "en", msg,
-						java.util.List.of(a.clientName(), a.patientName(), a.startsAt()), false));
+						java.util.List.of(a.clientName(), a.patientName(), "our vet team", a.startsAt()), false));
 				recordReminderAudit(clinicId, dedupeKey);
 				apptCount++;
 			}
@@ -113,7 +113,7 @@ public class ReminderService {
 						") for " + v.patientName() + " is due on " + v.nextDueOn() + ".";
 				communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
 						v.phone(), "VAX_REMINDER", "en", msg,
-						java.util.List.of(v.clientName(), v.vaccineName(), v.patientName(), v.nextDueOn()), false));
+						java.util.List.of(v.clientName(), clinicName(clinicId), v.patientName()), false));
 				recordReminderAudit(clinicId, dedupeKey);
 				vaxCount++;
 			}
@@ -168,11 +168,15 @@ public class ReminderService {
 		);
 	}
 
-	public BroadcastResultDto broadcastToCohort(UUID clinicId, UUID actorId, BroadcastRequest req, String requestId) {
-		String clinicName = jdbcTemplate.queryForObject(
+	private String clinicName(UUID clinicId) {
+		String name = jdbcTemplate.queryForObject(
 				"select coalesce(name, 'VetOS Clinic') from clinics where id = ?",
 				String.class, clinicId);
-		if (clinicName == null) clinicName = "VetOS Clinic";
+		return name == null ? "VetOS Clinic" : name;
+	}
+
+	public BroadcastResultDto broadcastToCohort(UUID clinicId, UUID actorId, BroadcastRequest req, String requestId) {
+		String clinicName = clinicName(clinicId);
 
 		List<BroadcastRecipient> recipients = new ArrayList<>();
 		String cohort = req.cohort() != null ? req.cohort().toUpperCase() : "ALL_CLIENTS";
