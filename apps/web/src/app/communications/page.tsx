@@ -297,7 +297,7 @@ export default function CommunicationsHubPage() {
               />
               {dailyRemindersEnabled
                 ? "Daily PRM engine enabled (09:00 server time)"
-                : "PRM engine off — use hello_world until Meta templates are Active"}
+                : "PRM engine off — enable after Meta templates are Active"}
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
@@ -336,8 +336,7 @@ export default function CommunicationsHubPage() {
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
         Invoice PDFs use the Active template <strong>invoice_pdf_alert</strong> from Clinic POS. Campaign and reminder
-        templates must be <strong>Active</strong> in Meta before enabling the PRM engine. Until then, send tests with{" "}
-        <strong>hello_world</strong> in Direct Message.
+        templates must be <strong>Active</strong> in Meta before enabling the PRM engine.
       </div>
 
       {message && (
@@ -543,7 +542,7 @@ export default function CommunicationsHubPage() {
                   >
                     <option value="CLINIC_UPDATE">CLINIC_UPDATE (→ campaign_notice)</option>
                     <option value="INVOICE_PDF">INVOICE_PDF (clinic POS only — requires invoice id)</option>
-                    <option value="hello_world">hello_world (test numbers only — banned on live numbers)</option>
+
                     <option value="FOLLOWUP_REMINDER">FOLLOWUP_REMINDER (Clinical Follow-up)</option>
                     <option value="VAX_REMINDER">VAX_REMINDER (Vaccine Due)</option>
                     <option value="DEWORM_REMINDER">DEWORM_REMINDER (Parasite Prevention)</option>
