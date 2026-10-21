@@ -16,5 +16,6 @@ ENV HOSTNAME="0.0.0.0"
 ENV PORT=3000
 COPY --from=build /src/.next/standalone ./
 COPY --from=build /src/.next/static ./.next/static
+COPY --from=build /src/public ./public
 EXPOSE 3000
 CMD ["node", "server.js"]
