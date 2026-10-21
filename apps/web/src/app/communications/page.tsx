@@ -62,6 +62,7 @@ export default function CommunicationsHubPage() {
   const [waPhone, setWaPhone] = useState("");
   const [waTemplate, setWaTemplate] = useState("CLINIC_UPDATE");
   const [waBody, setWaBody] = useState("Hello from your veterinary clinic.");
+  const [waParty, setWaParty] = useState({ owner: "", pet: "" });
 
   const [emailTo, setEmailTo] = useState("");
   const [emailSubject, setEmailSubject] = useState("Veterinary Care Follow-up - VetOS Clinic");
@@ -178,15 +179,17 @@ export default function CommunicationsHubPage() {
       setEmailTo(selected.email);
     }
     const cName = clinicProfile.data?.name || "VetOS Animal Hospital";
+    setWaParty({ owner: selected.ownerName, pet: selected.petName });
     setWaBody(`Hello ${selected.ownerName}, reminder from ${cName} regarding ${selected.petName}. Please let us know if you have any questions.`);
     setEmailBody(`Dear ${selected.ownerName},\n\nThis is a care follow-up from ${cName} regarding ${selected.petName}.\n\nWarm regards,\n${cName} Team`);
   }
 
-  function queueCloudWhatsApp(to: string, body: string, template?: string) {
+  function queueCloudWhatsApp(to: string, body: string, templateParams: string[], template?: string) {
     queueWhatsAppQuickMutation.mutate({
       to: normalizeWhatsAppTo(to),
       template: template ?? effectiveTemplateForTab(activeTab),
       body,
+      templateParams,
     });
   }
 
@@ -217,6 +220,13 @@ export default function CommunicationsHubPage() {
         to: normalizeWhatsAppTo(waPhone),
         template: waTemplate,
         body: waBody,
+        templateParams: [
+          waParty.owner || "Pet Parent",
+          clinicName,
+          waParty.pet || "your pet",
+          "the scheduled date",
+          "the scheduled date",
+        ],
       }),
     onSuccess: async () => {
       setMessage(`WhatsApp message queued for +${normalizeWhatsAppTo(waPhone)}. Check the outbox below for delivery status.`);
@@ -227,11 +237,12 @@ export default function CommunicationsHubPage() {
   });
 
   const queueWhatsAppQuickMutation = useMutation({
-    mutationFn: (params: { to: string; template: string; body: string }) =>
+    mutationFn: (params: { to: string; template: string; body: string; templateParams?: string[] }) =>
       sendWhatsApp({
         to: normalizeWhatsAppTo(params.to),
         template: params.template,
         body: params.body,
+        templateParams: params.templateParams,
       }),
     onSuccess: async () => {
       setMessage("Message queued to outbox — Meta Cloud API will send shortly.");
@@ -652,6 +663,7 @@ export default function CommunicationsHubPage() {
                             to: opt.phone,
                             template: effectiveTemplateForTab(activeTab),
                             body: `Hello ${opt.ownerName}, warm greetings from ${clinicName} regarding your pet ${opt.petName}.`,
+                            templateParams: [opt.ownerName, clinicName, opt.petName, "the scheduled date", "the scheduled date"],
                           })
                         }
                         className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-[11px] flex items-center gap-1 shadow-2xs"
@@ -822,7 +834,7 @@ export default function CommunicationsHubPage() {
                                 <button
                                   type="button"
                                   disabled={queueWhatsAppQuickMutation.isPending}
-                                  onClick={() => queueCloudWhatsApp(f.phone, previewMsg)}
+                                  onClick={() => queueCloudWhatsApp(f.phone, previewMsg, [f.clientName, clinicName, f.patientName, f.followUpOn])}
                                   className="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-[11px] px-2.5 py-1 shadow-2xs"
                                 >
                                   <Send className="h-3 w-3" />
@@ -868,7 +880,7 @@ export default function CommunicationsHubPage() {
                                 <button
                                   type="button"
                                   disabled={queueWhatsAppQuickMutation.isPending}
-                                  onClick={() => queueCloudWhatsApp(v.phone, previewMsg)}
+                                  onClick={() => queueCloudWhatsApp(v.phone, previewMsg, [v.clientName, clinicName, v.patientName, v.vaccineName, v.nextDueOn])}
                                   className="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-[11px] px-2.5 py-1 shadow-2xs"
                                 >
                                   <Send className="h-3 w-3" />
@@ -914,7 +926,7 @@ export default function CommunicationsHubPage() {
                                 <button
                                   type="button"
                                   disabled={queueWhatsAppQuickMutation.isPending}
-                                  onClick={() => queueCloudWhatsApp(d.phone, previewMsg)}
+                                  onClick={() => queueCloudWhatsApp(d.phone, previewMsg, [d.clientName, clinicName, d.patientName, d.productName, d.nextDueOn])}
                                   className="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-[11px] px-2.5 py-1 shadow-2xs"
                                 >
                                   <Send className="h-3 w-3" />
@@ -960,7 +972,7 @@ export default function CommunicationsHubPage() {
                                 <button
                                   type="button"
                                   disabled={queueWhatsAppQuickMutation.isPending}
-                                  onClick={() => queueCloudWhatsApp(l.phone, previewMsg)}
+                                  onClick={() => queueCloudWhatsApp(l.phone, previewMsg, [l.clientName, clinicName, l.patientNames])}
                                   className="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-[11px] px-2.5 py-1 shadow-2xs"
                                 >
                                   <Send className="h-3 w-3" />
@@ -1001,7 +1013,7 @@ export default function CommunicationsHubPage() {
                                 <button
                                   type="button"
                                   disabled={queueWhatsAppQuickMutation.isPending}
-                                  onClick={() => queueCloudWhatsApp(c.phone, previewMsg)}
+                                  onClick={() => queueCloudWhatsApp(c.phone, previewMsg, [c.clientName, clinicName, c.patientNames])}
                                   className="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-[11px] px-2.5 py-1 shadow-2xs"
                                 >
                                   <Send className="h-3 w-3" />

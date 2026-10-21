@@ -84,6 +84,7 @@ public class ReminderService {
 					"REMINDERS_DISABLED",
 					"Automated reminders are disabled. Approve Meta WhatsApp templates, then set VETOS_REMINDERS_DAILY_ENABLED=true.");
 		}
+		String clinicName = clinicName(clinicId);
 		int apptCount = 0;
 		int vaxCount = 0;
 		int dewormCount = 0;
@@ -98,7 +99,7 @@ public class ReminderService {
 						" has a veterinary appointment on " + a.startsAt() + ".";
 				communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
 						a.phone(), "APPOINTMENT_REMINDER", "en", msg,
-						java.util.List.of(a.clientName(), a.patientName(), "our vet team", a.startsAt()), false));
+						java.util.List.of(a.clientName(), clinicName, a.patientName(), a.startsAt()), false));
 				recordReminderAudit(clinicId, dedupeKey);
 				apptCount++;
 			}
@@ -113,7 +114,7 @@ public class ReminderService {
 						") for " + v.patientName() + " is due on " + v.nextDueOn() + ".";
 				communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
 						v.phone(), "VAX_REMINDER", "en", msg,
-						java.util.List.of(v.clientName(), clinicName(clinicId), v.patientName()), false));
+						java.util.List.of(v.clientName(), clinicName, v.patientName(), v.vaccineName(), v.nextDueOn()), false));
 				recordReminderAudit(clinicId, dedupeKey);
 				vaxCount++;
 			}
@@ -128,7 +129,7 @@ public class ReminderService {
 						") for " + d.patientName() + " is due on " + d.nextDueOn() + ".";
 				communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
 						d.phone(), "DEWORM_REMINDER", "en", msg,
-						java.util.List.of(d.clientName(), d.productName(), d.patientName(), d.nextDueOn()), false));
+						java.util.List.of(d.clientName(), clinicName, d.patientName(), d.productName(), d.nextDueOn()), false));
 				recordReminderAudit(clinicId, dedupeKey);
 				dewormCount++;
 			}
@@ -144,7 +145,7 @@ public class ReminderService {
 						f.followUpOn() + ". Please confirm your visit.";
 				communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
 						f.phone(), "FOLLOWUP_REMINDER", "en", msg,
-						java.util.List.of(f.clientName(), f.patientName(), f.doctorName(), f.followUpOn()), false));
+						java.util.List.of(f.clientName(), clinicName, f.patientName(), f.followUpOn()), false));
 				recordReminderAudit(clinicId, dedupeKey);
 				followupCount++;
 			}
@@ -184,32 +185,32 @@ public class ReminderService {
 		switch (cohort) {
 			case "FOLLOWUPS_7D" -> {
 				for (FollowUpCandidate f : queryFollowupsDue(clinicId, 7)) {
-					recipients.add(new BroadcastRecipient(null, f.clientName(), f.patientName(), f.phone(), f.followUpOn()));
+					recipients.add(new BroadcastRecipient(null, f.clientName(), f.patientName(), f.phone(), f.followUpOn(), ""));
 				}
 			}
 			case "VAX_7D" -> {
 				for (VaxReminderCandidate v : queryVaccinationsDue(clinicId, 7)) {
-					recipients.add(new BroadcastRecipient(null, v.clientName(), v.patientName(), v.phone(), v.nextDueOn()));
+					recipients.add(new BroadcastRecipient(null, v.clientName(), v.patientName(), v.phone(), v.nextDueOn(), v.vaccineName()));
 				}
 			}
 			case "DEWORM_7D" -> {
 				for (DewormReminderCandidate d : queryDewormingsDue(clinicId, 7)) {
-					recipients.add(new BroadcastRecipient(null, d.clientName(), d.patientName(), d.phone(), d.nextDueOn()));
+					recipients.add(new BroadcastRecipient(null, d.clientName(), d.patientName(), d.phone(), d.nextDueOn(), d.productName()));
 				}
 			}
 			case "APPOINTMENTS_24H" -> {
 				for (ApptReminderCandidate a : queryAppointmentsDue(clinicId, 24)) {
-					recipients.add(new BroadcastRecipient(null, a.clientName(), a.patientName(), a.phone(), a.startsAt()));
+					recipients.add(new BroadcastRecipient(null, a.clientName(), a.patientName(), a.phone(), a.startsAt(), ""));
 				}
 			}
 			case "LAPSED_60D" -> {
 				for (LapsedClientCandidate l : queryLapsedClients(clinicId, 60)) {
-					recipients.add(new BroadcastRecipient(l.clientId(), l.clientName(), l.patientNames(), l.phone(), l.lastVisit()));
+					recipients.add(new BroadcastRecipient(l.clientId(), l.clientName(), l.patientNames(), l.phone(), l.lastVisit(), ""));
 				}
 			}
 			default -> {
 				for (AllClientCandidate a : queryAllClients(clinicId)) {
-					recipients.add(new BroadcastRecipient(a.clientId(), a.clientName(), a.patientNames(), a.phone(), ""));
+					recipients.add(new BroadcastRecipient(a.clientId(), a.clientName(), a.patientNames(), a.phone(), "", ""));
 				}
 			}
 		}
@@ -232,13 +233,36 @@ public class ReminderService {
 					.replace("{clinic_name}", clinicName)
 					.replace("{due_date}", r.dueDate() != null ? r.dueDate() : "");
 
+			String owner = r.ownerName() != null ? r.ownerName() : "Pet Parent";
+			String pet = r.petName() != null ? r.petName() : "your pet";
+			String due = r.dueDate() != null && !r.dueDate().isBlank() ? r.dueDate() : "the scheduled date";
+			String detail = r.detail() != null && !r.detail().isBlank() ? r.detail() : "your pet's care";
+			String template;
+			java.util.List<String> params;
+			switch (cohort) {
+				case "FOLLOWUPS_7D" -> {
+					template = "FOLLOWUP_REMINDER";
+					params = java.util.List.of(owner, clinicName, pet, due);
+				}
+				case "APPOINTMENTS_24H" -> {
+					template = "APPOINTMENT_REMINDER";
+					params = java.util.List.of(owner, clinicName, pet, due);
+				}
+				case "VAX_7D" -> {
+					template = "VAX_REMINDER";
+					params = java.util.List.of(owner, clinicName, pet, detail, due);
+				}
+				case "DEWORM_7D" -> {
+					template = "DEWORM_REMINDER";
+					params = java.util.List.of(owner, clinicName, pet, detail, due);
+				}
+				default -> {
+					template = "BROADCAST_" + cohort;
+					params = java.util.List.of(owner, clinicName, pet);
+				}
+			}
 			communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
-					r.phone(), "BROADCAST_" + cohort, "en", personalized,
-					java.util.List.of(
-							r.ownerName() != null ? r.ownerName() : "Pet Parent",
-							clinicName,
-							r.petName() != null ? r.petName() : "your pet"),
-					false));
+					r.phone(), template, "en", personalized, params, false));
 			count++;
 		}
 
@@ -415,7 +439,7 @@ public class ReminderService {
 				clinicId, phone);
 	}
 
-	private record BroadcastRecipient(UUID clientId, String ownerName, String petName, String phone, String dueDate) {}
+	private record BroadcastRecipient(UUID clientId, String ownerName, String petName, String phone, String dueDate, String detail) {}
 
 	public record ReminderRunSummary(int appointmentsReminded, int vaccinationsReminded, int dewormingsReminded, int followupsReminded) {}
 	public record ApptReminderCandidate(UUID id, String startsAt, String patientName, String clientName, String phone, String email) {}

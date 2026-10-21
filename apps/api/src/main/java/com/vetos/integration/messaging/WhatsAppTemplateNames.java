@@ -18,7 +18,8 @@ public final class WhatsAppTemplateNames {
 		if (metaTemplateName == null) return -1;
 		return switch (metaTemplateName) {
 			case "campaign_notice" -> 3;
-			case "followup_reminder", "deworm_due" -> 4;
+			case "followup_reminder", "deworm_due", "followup_notice", "appointment_notice" -> 4;
+			case "vaccine_notice", "deworm_notice" -> 5;
 			default -> -1;
 		};
 	}
@@ -34,10 +35,10 @@ public final class WhatsAppTemplateNames {
 		return switch (key.toUpperCase()) {
 			case "INVOICE_PDF" -> "invoice_pdf_alert";
 			case "INVOICE_ALERT", "CLINIC_UPDATE" -> "campaign_notice";
-			case "APPOINTMENT_REMINDER" -> "followup_reminder";
-			case "VAX_REMINDER" -> "campaign_notice";
-			case "DEWORM_REMINDER" -> "deworm_due";
-			case "FOLLOWUP_REMINDER" -> "followup_reminder";
+			case "APPOINTMENT_REMINDER" -> "appointment_notice";
+			case "VAX_REMINDER" -> "vaccine_notice";
+			case "DEWORM_REMINDER" -> "deworm_notice";
+			case "FOLLOWUP_REMINDER" -> "followup_notice";
 			default -> {
 				if (key.startsWith("BROADCAST_") || key.startsWith("CAMPAIGN_")) {
 					yield "campaign_notice";

@@ -8,10 +8,15 @@ class WhatsAppTemplateNamesTest {
 
 	@Test
 	void mapsLogicalReminderTemplates() {
-		assertThat(WhatsAppTemplateNames.toMetaTemplateName("APPOINTMENT_REMINDER")).isEqualTo("followup_reminder");
-		assertThat(WhatsAppTemplateNames.toMetaTemplateName("VAX_REMINDER")).isEqualTo("campaign_notice");
-		assertThat(WhatsAppTemplateNames.toMetaTemplateName("DEWORM_REMINDER")).isEqualTo("deworm_due");
-		assertThat(WhatsAppTemplateNames.toMetaTemplateName("FOLLOWUP_REMINDER")).isEqualTo("followup_reminder");
+		assertThat(WhatsAppTemplateNames.toMetaTemplateName("APPOINTMENT_REMINDER")).isEqualTo("appointment_notice");
+		assertThat(WhatsAppTemplateNames.toMetaTemplateName("VAX_REMINDER")).isEqualTo("vaccine_notice");
+		assertThat(WhatsAppTemplateNames.toMetaTemplateName("DEWORM_REMINDER")).isEqualTo("deworm_notice");
+		assertThat(WhatsAppTemplateNames.toMetaTemplateName("FOLLOWUP_REMINDER")).isEqualTo("followup_notice");
+		assertThat(WhatsAppTemplateNames.bodyParamCount("followup_notice")).isEqualTo(4);
+		assertThat(WhatsAppTemplateNames.bodyParamCount("appointment_notice")).isEqualTo(4);
+		assertThat(WhatsAppTemplateNames.bodyParamCount("vaccine_notice")).isEqualTo(5);
+		assertThat(WhatsAppTemplateNames.bodyParamCount("deworm_notice")).isEqualTo(5);
+		assertThat(WhatsAppTemplateNames.requiresImageHeader("followup_notice")).isFalse();
 		assertThat(WhatsAppTemplateNames.toMetaTemplateName("BROADCAST_ALL")).isEqualTo("campaign_notice");
 		assertThat(WhatsAppTemplateNames.toMetaTemplateName("INVOICE_PDF")).isEqualTo("invoice_pdf_alert");
 		assertThat(WhatsAppTemplateNames.toMetaTemplateName("INVOICE_ALERT")).isEqualTo("campaign_notice");

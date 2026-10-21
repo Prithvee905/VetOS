@@ -186,9 +186,10 @@ public class ConfigurableWhatsAppClient implements WhatsAppClient {
 			params.add(bodyPreview.length() > 120 ? bodyPreview.substring(0, 120) : bodyPreview);
 		}
 		else {
+			params.add("VetOS Clinic");
 			params.add("your pet");
-			params.add("our vet team");
-			params.add("soon");
+			params.add("the scheduled date");
+			params.add("the scheduled date");
 		}
 		return params;
 	}
