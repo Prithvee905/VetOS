@@ -18,7 +18,13 @@ jobs:
         run: chmod +x apps/api/mvnw
       - name: Test API
         working-directory: apps/api
-        run: ./mvnw -B test
+        run: ./mvnw -B test -Dsurefire.useFile=false
+      - name: Upload Surefire Reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: apps/api/target/surefire-reports/
 
   web:
     runs-on: ubuntu-latest
