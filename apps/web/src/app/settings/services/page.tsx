@@ -15,7 +15,7 @@ export default function ServicesCatalogPage() {
 
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
-  const [defaultPrice, setDefaultPrice] = useState("500");
+  const [defaultPrice, setDefaultPrice] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -39,7 +39,7 @@ export default function ServicesCatalogPage() {
       setError(null);
       setCode("");
       setName("");
-      setDefaultPrice("500");
+      setDefaultPrice("");
       await queryClient.invalidateQueries({ queryKey: ["services"] });
     },
     onError: (err) => setError(err instanceof Error ? err.message : "Failed to create service"),

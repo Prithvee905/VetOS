@@ -86,7 +86,7 @@ export default function AnalyticsPage() {
 
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [expenseCategory, setExpenseCategory] = useState("Medical Supplies");
-  const [expenseAmount, setExpenseAmount] = useState("500");
+  const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseDate, setExpenseDate] = useState(new Date().toISOString().slice(0, 10));
   const [expenseNotes, setExpenseNotes] = useState("");
   const [trendDays, setTrendDays] = useState(30);
@@ -141,7 +141,7 @@ export default function AnalyticsPage() {
       queryClient.invalidateQueries({ queryKey: ["financial-summary"] });
       queryClient.invalidateQueries({ queryKey: ["clinic-expenses"] });
       setShowExpenseModal(false);
-      setExpenseAmount("500");
+      setExpenseAmount("");
       setExpenseNotes("");
     },
   });

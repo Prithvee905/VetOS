@@ -11,7 +11,15 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import type { PatientRow, ClientRow, TimelineEvent } from "@/lib/api";
+import {
+  getHealthProfile,
+  saveHealthProfile,
+  uploadFile,
+  getFileDownloadUrl,
+  type PatientRow,
+  type ClientRow,
+  type TimelineEvent,
+} from "@/lib/api";
 
 type WeightRecord = {
   id: string;
@@ -24,6 +32,9 @@ type PhotoItem = {
   category: "medical" | "before" | "after" | "grooming" | "general";
   date: string;
   caption: string;
+  /** Server file id (current storage). */
+  fileId?: string;
+  /** Legacy embedded image; only present until migrated to the server. */
   imageUrl?: string;
   svgIcon?: "dog" | "healed" | "bath";
 };
@@ -38,8 +49,34 @@ type HealthProfileData = {
   notes: string[];
   allergies: string[];
   photos: PhotoItem[];
+  avatarFileId?: string;
+  /** Legacy embedded avatar; only present until migrated to the server. */
   avatarUrl?: string;
 };
+
+/** What is stored on the server; demographics always come from the patient record. */
+type StoredHealthProfile = {
+  weights: WeightRecord[];
+  notes: string[];
+  allergies: string[];
+  photos: PhotoItem[];
+  avatarFileId?: string;
+};
+
+function toStored(profile: HealthProfileData): StoredHealthProfile {
+  return {
+    weights: profile.weights,
+    notes: profile.notes,
+    allergies: profile.allergies,
+    photos: profile.photos.map((photo) => ({ ...photo, imageUrl: undefined })),
+    avatarFileId: profile.avatarFileId,
+  };
+}
+
+async function dataUrlToFile(dataUrl: string, name: string): Promise<File> {
+  const blob = await (await fetch(dataUrl)).blob();
+  return new File([blob], name, { type: blob.type || "image/jpeg" });
+}
 
 type Props = {
   isOpen: boolean;
@@ -126,59 +163,106 @@ export function PatientHealthProfileModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
-  // Load from localStorage or initialize with genuine patient data
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
+
+  const fromStored = (stored: Partial<StoredHealthProfile>): HealthProfileData => ({
+    ...getInitialProfile(),
+    weights: stored.weights ?? extractTimelineWeights(),
+    notes: stored.notes ?? (patient.notes ? [patient.notes.trim()] : []),
+    allergies: stored.allergies ?? [],
+    photos: stored.photos ?? [],
+    avatarFileId: stored.avatarFileId,
+  });
+
+  /** Moves a profile saved in this browser (before profiles moved to the server) up to the server, once. */
+  const migrateLegacyProfile = async (): Promise<StoredHealthProfile | null> => {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return null;
+    const legacy: HealthProfileData = JSON.parse(raw);
+    const isDemoData =
+      legacy.weights?.some((w) => ["w-1", "w-2", "w-3", "w-4"].includes(w.id)) ||
+      (legacy.allergies?.includes("Penicillin") && legacy.allergies?.includes("Chicken protein")) ||
+      legacy.photos?.some((ph) => ["p-1", "p-2", "p-3"].includes(ph.id));
+    if (isDemoData) return null;
+    const photos: PhotoItem[] = [];
+    for (const photo of legacy.photos ?? []) {
+      if (photo.imageUrl?.startsWith("data:")) {
+        const uploaded = await uploadFile("PATIENT", patient.id, await dataUrlToFile(photo.imageUrl, photo.id + ".jpg"));
+        photos.push({ ...photo, imageUrl: undefined, fileId: uploaded.id });
+      } else {
+        photos.push(photo);
+      }
+    }
+    let avatarFileId: string | undefined;
+    if (legacy.avatarUrl?.startsWith("data:")) {
+      avatarFileId = (await uploadFile("PATIENT", patient.id, await dataUrlToFile(legacy.avatarUrl, "avatar.jpg"))).id;
+    }
+    const stored: StoredHealthProfile = {
+      weights: legacy.weights ?? [],
+      notes: legacy.notes ?? [],
+      allergies: legacy.allergies ?? [],
+      photos,
+      avatarFileId,
+    };
+    await saveHealthProfile(patient.id, stored);
+    return stored;
+  };
+
+  // Load from the server (shared by every computer); migrate any browser-only copy once.
   useEffect(() => {
     if (!isOpen) return;
-    try {
-      // Purge any obsolete legacy mock storage keys
-      localStorage.removeItem(`vetos_health_profile_${patient.id}`);
-      localStorage.removeItem(`vetos_health_profile_v2_${patient.id}`);
-
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        const parsed: HealthProfileData = JSON.parse(stored);
-        // Check for old mock signature (e.g., hardcoded 31.5kg or dummy photo ids)
-        const hasLegacyMock =
-          parsed.weights?.some((w) => w.id === "w-1" || w.id === "w-2" || w.id === "w-3" || w.id === "w-4") ||
-          (parsed.allergies?.includes("Penicillin") && parsed.allergies?.includes("Chicken protein")) ||
-          parsed.photos?.some((p) => p.id === "p-1" || p.id === "p-2" || p.id === "p-3");
-
-        if (hasLegacyMock) {
-          const fresh = getInitialProfile();
-          setProfile(fresh);
-          localStorage.setItem(storageKey, JSON.stringify(fresh));
+    let cancelled = false;
+    setLoadState("loading");
+    setStatusError(null);
+    (async () => {
+      try {
+        const response = await getHealthProfile<StoredHealthProfile>(patient.id);
+        if (cancelled) return;
+        if (response.profile) {
+          setProfile(fromStored(response.profile));
         } else {
-          // Merge stored additions with fresh patient database demographics
-          setProfile({
-            ...parsed,
-            breed: patient.breed?.trim() || parsed.breed || "Mixed / Unspecified",
-            sex: patient.sexCode?.trim() || parsed.sex || "Unspecified",
-            color: patient.color?.trim() || parsed.color || "Not specified",
-            microchip: patient.microchip?.trim() || parsed.microchip || "None",
-            dob: patient.dateOfBirth?.trim() || parsed.dob || "",
-            weights: parsed.weights || extractTimelineWeights(),
-            notes: parsed.notes || (patient.notes ? [patient.notes.trim()] : []),
-            allergies: parsed.allergies || [],
-            photos: parsed.photos || [],
-          });
+          const migrated = await migrateLegacyProfile();
+          if (cancelled) return;
+          setProfile(migrated ? fromStored(migrated) : getInitialProfile());
         }
-      } else {
-        const initial = getInitialProfile();
-        setProfile(initial);
-        localStorage.setItem(storageKey, JSON.stringify(initial));
+        try {
+          localStorage.removeItem(storageKey);
+          localStorage.removeItem("vetos_health_profile_" + patient.id);
+          localStorage.removeItem("vetos_health_profile_v2_" + patient.id);
+        } catch {
+          // Browser storage unavailable; nothing to clean up.
+        }
+        setLoadState("ready");
+      } catch (error) {
+        if (cancelled) return;
+        setLoadState("error");
+        setStatusError(error instanceof Error ? error.message : "Could not load the health profile.");
       }
-    } catch {
-      setProfile(getInitialProfile());
-    }
-  }, [isOpen, patient.id, timelineEvents]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, patient.id]);
 
-  // Save changes to localStorage
-  const saveProfile = (updated: HealthProfileData) => {
+  // Save to the server; the profile is never kept only in this browser.
+  const saveProfile = async (updated: HealthProfileData) => {
+    if (loadState !== "ready") {
+      setStatusError("The profile is still loading. Try again in a moment.");
+      return;
+    }
     setProfile(updated);
+    setSaving(true);
+    setStatusError(null);
     try {
-      localStorage.setItem(storageKey, JSON.stringify(updated));
-    } catch (e) {
-      console.error("Failed to save health profile:", e);
+      await saveHealthProfile(patient.id, toStored(updated));
+    } catch (error) {
+      setStatusError(error instanceof Error ? error.message : "Could not save the health profile.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -269,44 +353,44 @@ export function PatientHealthProfileModal({
     saveProfile(updated);
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
+    setUploading(true);
+    setStatusError(null);
+    try {
+      const uploaded = await uploadFile("PATIENT", patient.id, file);
       const newPhoto: PhotoItem = {
-        id: `p-${Date.now()}`,
+        id: "p-" + Date.now(),
         category: photoCategory,
         date: new Date().toISOString().slice(0, 10),
-        caption: photoCaption.trim() || `${photoCategory.toUpperCase()} photo`,
-        imageUrl: dataUrl,
+        caption: photoCaption.trim() || photoCategory.toUpperCase() + " photo",
+        fileId: uploaded.id,
       };
-      const updated = {
-        ...profile,
-        photos: [...profile.photos, newPhoto],
-      };
-      saveProfile(updated);
+      await saveProfile({ ...profile, photos: [...profile.photos, newPhoto] });
       setPhotoCaption("");
+    } catch (error) {
+      setStatusError(error instanceof Error ? error.message : "Photo upload failed.");
+    } finally {
+      setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      const updated = {
-        ...profile,
-        avatarUrl: dataUrl,
-      };
-      saveProfile(updated);
+    setUploading(true);
+    setStatusError(null);
+    try {
+      const uploaded = await uploadFile("PATIENT", patient.id, file);
+      await saveProfile({ ...profile, avatarFileId: uploaded.id, avatarUrl: undefined });
+    } catch (error) {
+      setStatusError(error instanceof Error ? error.message : "Photo upload failed.");
+    } finally {
+      setUploading(false);
       if (avatarInputRef.current) avatarInputRef.current.value = "";
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
   const handleDeletePhoto = (id: string) => {
@@ -343,15 +427,27 @@ export function PatientHealthProfileModal({
         </div>
 
         <div className="p-6 space-y-5 max-h-[82vh] overflow-y-auto">
+          {(loadState === "loading" || saving || uploading || statusError) && (
+            <div
+              className={
+                "rounded-lg border px-3 py-2 text-xs " +
+                (statusError ? "border-rose-200 bg-rose-50 text-rose-800" : "border-slate-200 bg-slate-50 text-slate-600")
+              }
+            >
+              {statusError ??
+                (loadState === "loading" ? "Loading health profile…" : uploading ? "Uploading photo…" : "Saving…")}
+            </div>
+          )}
+
           {/* Pet Identity Card Banner */}
           <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-4 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3.5">
               {/* Pet Avatar */}
               <div className="relative group">
                 <div className="h-14 w-14 rounded-2xl bg-amber-50 border border-amber-200/60 flex items-center justify-center overflow-hidden shadow-2xs">
-                  {profile.avatarUrl ? (
+                  {profile.avatarFileId || profile.avatarUrl ? (
                     <img
-                      src={profile.avatarUrl}
+                      src={profile.avatarFileId ? getFileDownloadUrl(profile.avatarFileId) : profile.avatarUrl}
                       alt={patient.name}
                       className="h-full w-full object-cover"
                     />
@@ -633,9 +729,9 @@ export function PatientHealthProfileModal({
                     </button>
 
                     <div className="h-28 w-full rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center overflow-hidden my-2">
-                      {item.imageUrl ? (
+                      {item.fileId || item.imageUrl ? (
                         <img
-                          src={item.imageUrl}
+                          src={item.fileId ? getFileDownloadUrl(item.fileId) : item.imageUrl}
                           alt={item.caption}
                           className="h-full w-full object-cover"
                         />

@@ -23,6 +23,7 @@ import {
   currentUser,
   copilotAdvise,
   getInvoice,
+  getPrescription,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { RecordSoapModal } from "@/components/record-soap-modal";
@@ -57,6 +58,45 @@ export default function PatientsPage() {
   }>({});
   const [invoiceLoadingId, setInvoiceLoadingId] = useState<string | null>(null);
   const [invoiceError, setInvoiceError] = useState<string | null>(null);
+
+  async function openPrescriptionPrint(prescriptionId: string) {
+    setInvoiceLoadingId(prescriptionId);
+    setInvoiceError(null);
+    try {
+      const rx = await getPrescription(prescriptionId);
+      const events = timelineQuery.data?.events ?? [];
+      const consultation = events.find((e) => e.id === rx.consultationId);
+      const prescribedAt = events.find((e) => e.id === rx.id)?.timestamp;
+      const doctor = usersQuery.data?.items.find((u) => u.id === rx.doctorUserId);
+      setPrintDocType("PRESCRIPTION");
+      setActivePrintData({
+        prescription: {
+          prescriptionDate: new Date(prescribedAt ?? Date.now()).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" }),
+          doctorName: doctor?.displayName || "",
+          clientName: timelineQuery.data?.client.displayName || "Pet Parent",
+          clientPhone: timelineQuery.data?.client.phone || "",
+          petName: timelineQuery.data?.patient.name || "Patient",
+          petSpecies: timelineQuery.data?.patient.speciesCode,
+          petBreed: timelineQuery.data?.patient.breed || undefined,
+          diagnosis: consultation?.title,
+          symptoms: consultation?.subtitle,
+          items: rx.items.map((item) => ({
+            medicineName: item.medicineName,
+            dosage: item.dosage || undefined,
+            frequency: item.frequency || undefined,
+            duration: item.duration || undefined,
+            instructions: item.instructions || undefined,
+            quantity: Number(item.quantity) || undefined,
+          })),
+        },
+      });
+      setPrintModalOpen(true);
+    } catch (error) {
+      setInvoiceError(error instanceof Error ? error.message : "Could not load this prescription.");
+    } finally {
+      setInvoiceLoadingId(null);
+    }
+  }
 
   async function openInvoicePrint(invoiceId: string) {
     setInvoiceLoadingId(invoiceId);
@@ -713,35 +753,15 @@ export default function PatientsPage() {
                               <span className="rounded bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700 border border-slate-200">
                                 Status: {ev.status}
                               </span>
-                              {(ev.eventType === "CONSULTATION" || ev.eventType === "PRESCRIPTION") && (
+                              {ev.eventType === "PRESCRIPTION" && (
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    setPrintDocType("PRESCRIPTION");
-                                    setActivePrintData({
-                                      prescription: {
-                                        prescriptionDate: new Date(ev.timestamp).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }),
-                                        doctorName:
-                                          usersQuery.data?.items.find((u) =>
-                                            u.roles.some((r) => r.toUpperCase() === "DOCTOR" || r.toUpperCase() === "OWNER")
-                                          )?.displayName || "Attending Doctor",
-                                        clientName: timelineQuery.data?.client.displayName || "Pet Parent",
-                                        clientPhone: timelineQuery.data?.client.phone || "",
-                                        petName: timelineQuery.data?.patient.name || "Patient",
-                                        petSpecies: timelineQuery.data?.patient.speciesCode,
-                                        diagnosis: ev.title,
-                                        symptoms: ev.subtitle,
-                                        items: [
-                                          { medicineName: "Dispensed Prescription Treatment", dosage: "Standard Dose", frequency: "As directed", duration: "5 days", instructions: "See clinical advice" },
-                                        ],
-                                      },
-                                    });
-                                    setPrintModalOpen(true);
-                                  }}
-                                  className="flex items-center gap-1 rounded bg-teal-50 px-2 py-1 text-[11px] font-semibold text-teal-800 hover:bg-teal-100 transition border border-teal-200/80 shadow-2xs"
+                                  disabled={invoiceLoadingId === ev.id}
+                                  onClick={() => void openPrescriptionPrint(ev.id)}
+                                  className="flex items-center gap-1 rounded bg-teal-50 px-2 py-1 text-[11px] font-semibold text-teal-800 hover:bg-teal-100 disabled:opacity-60 transition border border-teal-200/80 shadow-2xs"
                                 >
                                   <Printer className="h-3 w-3" />
-                                  Print Rx Slip
+                                  {invoiceLoadingId === ev.id ? "Loading…" : "Print Rx Slip"}
                                 </button>
                               )}
                               {ev.eventType === "INVOICE" && (
