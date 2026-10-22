@@ -176,102 +176,6 @@ public class ReminderService {
 		return name == null ? "VetOS Clinic" : name;
 	}
 
-	public BroadcastResultDto broadcastToCohort(UUID clinicId, UUID actorId, BroadcastRequest req, String requestId) {
-		String clinicName = clinicName(clinicId);
-
-		List<BroadcastRecipient> recipients = new ArrayList<>();
-		String cohort = req.cohort() != null ? req.cohort().toUpperCase() : "ALL_CLIENTS";
-
-		switch (cohort) {
-			case "FOLLOWUPS_7D" -> {
-				for (FollowUpCandidate f : queryFollowupsDue(clinicId, 7)) {
-					recipients.add(new BroadcastRecipient(null, f.clientName(), f.patientName(), f.phone(), f.followUpOn(), ""));
-				}
-			}
-			case "VAX_7D" -> {
-				for (VaxReminderCandidate v : queryVaccinationsDue(clinicId, 7)) {
-					recipients.add(new BroadcastRecipient(null, v.clientName(), v.patientName(), v.phone(), v.nextDueOn(), v.vaccineName()));
-				}
-			}
-			case "DEWORM_7D" -> {
-				for (DewormReminderCandidate d : queryDewormingsDue(clinicId, 7)) {
-					recipients.add(new BroadcastRecipient(null, d.clientName(), d.patientName(), d.phone(), d.nextDueOn(), d.productName()));
-				}
-			}
-			case "APPOINTMENTS_24H" -> {
-				for (ApptReminderCandidate a : queryAppointmentsDue(clinicId, 24)) {
-					recipients.add(new BroadcastRecipient(null, a.clientName(), a.patientName(), a.phone(), a.startsAt(), ""));
-				}
-			}
-			case "LAPSED_60D" -> {
-				for (LapsedClientCandidate l : queryLapsedClients(clinicId, 60)) {
-					recipients.add(new BroadcastRecipient(l.clientId(), l.clientName(), l.patientNames(), l.phone(), l.lastVisit(), ""));
-				}
-			}
-			default -> {
-				for (AllClientCandidate a : queryAllClients(clinicId)) {
-					recipients.add(new BroadcastRecipient(a.clientId(), a.clientName(), a.patientNames(), a.phone(), "", ""));
-				}
-			}
-		}
-
-		String templateText = req.customMessage() != null && !req.customMessage().isBlank()
-				? req.customMessage()
-				: "Hello {owner_name}, warm greetings from {clinic_name} regarding your pet {pet_name}.";
-
-		int count = 0;
-		for (BroadcastRecipient r : recipients) {
-			if (r.phone() == null || r.phone().isBlank()) continue;
-			UUID clientId = r.clientId() != null ? r.clientId() : resolveClientIdByPhone(clinicId, r.phone());
-			if (clientId != null && isMarketingOptOut(clinicId, clientId)) {
-				continue;
-			}
-
-			String personalized = templateText
-					.replace("{owner_name}", r.ownerName() != null ? r.ownerName() : "Pet Parent")
-					.replace("{pet_name}", r.petName() != null ? r.petName() : "your pet")
-					.replace("{clinic_name}", clinicName)
-					.replace("{due_date}", r.dueDate() != null ? r.dueDate() : "");
-
-			String owner = r.ownerName() != null ? r.ownerName() : "Pet Parent";
-			String pet = r.petName() != null ? r.petName() : "your pet";
-			String due = r.dueDate() != null && !r.dueDate().isBlank() ? r.dueDate() : "the scheduled date";
-			String detail = r.detail() != null && !r.detail().isBlank() ? r.detail() : "your pet's care";
-			String template;
-			java.util.List<String> params;
-			switch (cohort) {
-				case "FOLLOWUPS_7D" -> {
-					template = "FOLLOWUP_REMINDER";
-					params = java.util.List.of(owner, clinicName, pet, due);
-				}
-				case "APPOINTMENTS_24H" -> {
-					template = "APPOINTMENT_REMINDER";
-					params = java.util.List.of(owner, clinicName, pet, due);
-				}
-				case "VAX_7D" -> {
-					template = "VAX_REMINDER";
-					params = java.util.List.of(owner, clinicName, pet, detail, due);
-				}
-				case "DEWORM_7D" -> {
-					template = "DEWORM_REMINDER";
-					params = java.util.List.of(owner, clinicName, pet, detail, due);
-				}
-				default -> {
-					template = "BROADCAST_" + cohort;
-					params = java.util.List.of(owner, clinicName, pet);
-				}
-			}
-			communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
-					r.phone(), template, "en", personalized, params, false));
-			count++;
-		}
-
-		if (actorId != null) {
-			auditRecorder.record(clinicId, actorId, "BROADCAST", "prm_broadcast", clinicId, requestId);
-		}
-		return new BroadcastResultDto(count, cohort, "QUEUED");
-	}
-
 	private List<ApptReminderCandidate> queryAppointmentsDue(UUID clinicId, int hours) {
 		return jdbcTemplate.query("""
 				select a.id, a.starts_at::text, p.name as patient_name, c.display_name as client_name,
@@ -425,22 +329,6 @@ public class ReminderService {
 				UuidV7.generate(), clinicId, dedupeKey);
 	}
 
-	private boolean isMarketingOptOut(UUID clinicId, UUID clientId) {
-		Boolean opted = jdbcTemplate.queryForObject(
-				"select marketing_opt_out from clients where id = ? and clinic_id = ?", Boolean.class, clientId, clinicId);
-		return Boolean.TRUE.equals(opted);
-	}
-
-	private UUID resolveClientIdByPhone(UUID clinicId, String phone) {
-		return jdbcTemplate.query("""
-				select id from clients where clinic_id = ? and phone = ? limit 1
-				""",
-				rs -> rs.next() ? rs.getObject("id", UUID.class) : null,
-				clinicId, phone);
-	}
-
-	private record BroadcastRecipient(UUID clientId, String ownerName, String petName, String phone, String dueDate, String detail) {}
-
 	public record ReminderRunSummary(int appointmentsReminded, int vaccinationsReminded, int dewormingsReminded, int followupsReminded) {}
 	public record ApptReminderCandidate(UUID id, String startsAt, String patientName, String clientName, String phone, String email) {}
 	public record VaxReminderCandidate(UUID id, String vaccineName, String nextDueOn, String patientName, String clientName, String phone) {}
@@ -459,5 +347,4 @@ public class ReminderService {
 	) {}
 
 	public record BroadcastRequest(String cohort, String channel, String template, String customMessage, List<UUID> recipientClientIds) {}
-	public record BroadcastResultDto(int dispatchedCount, String cohort, String status) {}
 }

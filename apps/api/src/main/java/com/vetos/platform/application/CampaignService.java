@@ -73,15 +73,44 @@ public class CampaignService {
 				continue;
 			}
 
+			String owner = orDefault(recipient.ownerName(), "Pet Parent");
+			String pet = orDefault(recipient.petName(), "your pet");
+			String due = orDefault(recipient.dueDate(), "the scheduled date");
+			String detail = orDefault(recipient.detail(), "your pet's care");
+
 			String personalized = message
-					.replace("{owner_name}", recipient.ownerName())
-					.replace("{pet_name}", recipient.petName())
+					.replace("{owner_name}", owner)
+					.replace("{pet_name}", pet)
 					.replace("{clinic_name}", clinicName)
 					.replace("{due_date}", recipient.dueDate() == null ? "" : recipient.dueDate());
 
+			String template;
+			List<String> params;
+			switch (cohort) {
+				case "FOLLOWUPS_7D" -> {
+					template = "FOLLOWUP_REMINDER";
+					params = List.of(owner, clinicName, pet, due);
+				}
+				case "APPOINTMENTS_24H" -> {
+					template = "APPOINTMENT_REMINDER";
+					params = List.of(owner, clinicName, pet, due);
+				}
+				case "VAX_7D" -> {
+					template = "VAX_REMINDER";
+					params = List.of(owner, clinicName, pet, detail, due);
+				}
+				case "DEWORM_7D" -> {
+					template = "DEWORM_REMINDER";
+					params = List.of(owner, clinicName, pet, detail, due);
+				}
+				default -> {
+					template = "CAMPAIGN_" + cohort;
+					params = List.of(owner, clinicName, pet);
+				}
+			}
+
 			communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
-					recipient.phone(), "CAMPAIGN_" + cohort, "en", personalized,
-					java.util.List.of(recipient.ownerName(), clinicName, recipient.petName()), false));
+					recipient.phone(), template, "en", personalized, params, false));
 			logDelivery(clinicId, campaignId, recipient.clientId(), "QUEUED", null);
 			sent++;
 		}
@@ -179,6 +208,7 @@ public class CampaignService {
 							rs.getString("pets"),
 							rs.getString("phone"),
 							rs.getBoolean("consent_whatsapp"),
+							"",
 							""),
 					args.toArray());
 		}
@@ -189,12 +219,12 @@ public class CampaignService {
 		List<Recipient> list = new ArrayList<>();
 		ReminderService.CohortsDto cohorts = reminderService.getCohorts(clinicId);
 		switch (cohort) {
-			case "FOLLOWUPS_7D" -> cohorts.followUpsDue().forEach(f -> list.add(new Recipient(null, f.clientName(), f.patientName(), f.phone(), true, f.followUpOn())));
-			case "VAX_7D" -> cohorts.vaccinationsDue().forEach(v -> list.add(new Recipient(null, v.clientName(), v.patientName(), v.phone(), true, v.nextDueOn())));
-			case "DEWORM_7D" -> cohorts.dewormingsDue().forEach(d -> list.add(new Recipient(null, d.clientName(), d.patientName(), d.phone(), true, d.nextDueOn())));
-			case "APPOINTMENTS_24H" -> cohorts.appointmentsDue().forEach(a -> list.add(new Recipient(null, a.clientName(), a.patientName(), a.phone(), true, a.startsAt())));
-			case "LAPSED_60D" -> cohorts.lapsedClients().forEach(l -> list.add(new Recipient(l.clientId(), l.clientName(), l.patientNames(), l.phone(), true, l.lastVisit())));
-			default -> cohorts.allClients().forEach(a -> list.add(new Recipient(a.clientId(), a.clientName(), a.patientNames(), a.phone(), true, "")));
+			case "FOLLOWUPS_7D" -> cohorts.followUpsDue().forEach(f -> list.add(new Recipient(null, f.clientName(), f.patientName(), f.phone(), true, f.followUpOn(), "")));
+			case "VAX_7D" -> cohorts.vaccinationsDue().forEach(v -> list.add(new Recipient(null, v.clientName(), v.patientName(), v.phone(), true, v.nextDueOn(), v.vaccineName())));
+			case "DEWORM_7D" -> cohorts.dewormingsDue().forEach(d -> list.add(new Recipient(null, d.clientName(), d.patientName(), d.phone(), true, d.nextDueOn(), d.productName())));
+			case "APPOINTMENTS_24H" -> cohorts.appointmentsDue().forEach(a -> list.add(new Recipient(null, a.clientName(), a.patientName(), a.phone(), true, a.startsAt(), "")));
+			case "LAPSED_60D" -> cohorts.lapsedClients().forEach(l -> list.add(new Recipient(l.clientId(), l.clientName(), l.patientNames(), l.phone(), true, l.lastVisit(), "")));
+			default -> cohorts.allClients().forEach(a -> list.add(new Recipient(a.clientId(), a.clientName(), a.patientNames(), a.phone(), true, "", "")));
 		}
 		// Enrich client ids for cohort rows missing clientId
 		for (int i = 0; i < list.size(); i++) {
@@ -206,14 +236,41 @@ public class CampaignService {
 						rs -> rs.next() ? rs.getObject("id", UUID.class) : null,
 						clinicId, r.phone());
 				if (clientId != null) {
-					list.set(i, new Recipient(clientId, r.ownerName(), r.petName(), r.phone(), r.consentWhatsApp(), r.dueDate()));
+					list.set(i, new Recipient(clientId, r.ownerName(), r.petName(), r.phone(), r.consentWhatsApp(), r.dueDate(), r.detail()));
 				}
 			}
 		}
-		return list.stream().filter(r -> r.clientId() != null).toList();
+		return mergeByClient(list.stream().filter(r -> r.clientId() != null).toList());
 	}
 
-	private record Recipient(UUID clientId, String ownerName, String petName, String phone, boolean consentWhatsApp, String dueDate) {
+	/** One message per client: a cohort can list the same owner several times, and deliveries are unique per client. */
+	static List<Recipient> mergeByClient(List<Recipient> rows) {
+		java.util.Map<UUID, Recipient> byClient = new java.util.LinkedHashMap<>();
+		for (Recipient row : rows) {
+			Recipient first = byClient.get(row.clientId());
+			if (first == null) {
+				byClient.put(row.clientId(), row);
+				continue;
+			}
+			String pets = first.petName() == null ? "" : first.petName();
+			if (row.petName() != null && !List.of(pets.split(", ")).contains(row.petName())) {
+				pets = pets.isEmpty() ? row.petName() : pets + ", " + row.petName();
+			}
+			String due = first.dueDate();
+			if (row.dueDate() != null && !row.dueDate().isBlank() && (due == null || due.isBlank() || row.dueDate().compareTo(due) < 0)) {
+				due = row.dueDate();
+			}
+			byClient.put(row.clientId(), new Recipient(first.clientId(), first.ownerName(), pets, first.phone(),
+					first.consentWhatsApp(), due, first.detail()));
+		}
+		return new ArrayList<>(byClient.values());
+	}
+
+	private static String orDefault(String value, String fallback) {
+		return value == null || value.isBlank() ? fallback : value;
+	}
+
+	record Recipient(UUID clientId, String ownerName, String petName, String phone, boolean consentWhatsApp, String dueDate, String detail) {
 	}
 
 	public record CreateCampaignRequest(String name, String cohort, String channel, String messageTemplate, List<UUID> recipientClientIds) {
