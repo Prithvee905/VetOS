@@ -178,7 +178,7 @@ export default function CommunicationsHubPage() {
     if (selected.email) {
       setEmailTo(selected.email);
     }
-    const cName = clinicProfile.data?.name || "VetOS Animal Hospital";
+    const cName = clinicProfile.data?.name || "our clinic";
     setWaParty({ owner: selected.ownerName, pet: selected.petName });
     setWaBody(`Hello ${selected.ownerName}, reminder from ${cName} regarding ${selected.petName}. Please let us know if you have any questions.`);
     setEmailBody(`Dear ${selected.ownerName},\n\nThis is a care follow-up from ${cName} regarding ${selected.petName}.\n\nWarm regards,\n${cName} Team`);
@@ -287,7 +287,7 @@ export default function CommunicationsHubPage() {
   });
 
   const cohorts = cohortsQuery.data;
-  const clinicName = clinicProfile.data?.name || "VetOS Animal Hospital";
+  const clinicName = clinicProfile.data?.name || "our clinic";
 
   return (
     <div className="flex flex-col gap-6 pb-20">

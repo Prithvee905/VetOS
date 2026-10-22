@@ -68,6 +68,7 @@ import {
   PRESCRIPTION_CLINICAL_PACKS,
 } from "@/lib/clinical-constants";
 import { phoneDigitsForInput, resolveInvoiceWhatsAppPhone } from "@/lib/whatsapp-phone";
+import { formatMoney } from "@/lib/utils";
 
 type ActiveTab = "queue" | "appointments" | "soap" | "pos" | "register";
 
@@ -153,7 +154,7 @@ export default function ClinicOperationsStation() {
   const loyalDiscountCap = Number(clinicProfile.data?.loyalDiscountPercent ?? 30);
   const ngoConsultationDiscountPercent = Number(clinicProfile.data?.ngoConsultationDiscountPercent ?? 50);
   const defaultAllowMedicineDiscount = Boolean(clinicProfile.data?.allowMedicineDiscount ?? false);
-  const clinicName = clinicProfile.data?.name || "VetOS Super Specialty Pet Hospital";
+  const clinicName = clinicProfile.data?.name || "our clinic";
 
   // Global data queries
   const branches = useQuery({ queryKey: ["branches"], queryFn: () => listBranches() });
@@ -1398,8 +1399,8 @@ export default function ClinicOperationsStation() {
       emailTo = emailInput.trim();
       receipt.clientEmail = emailTo;
     }
-    const subject = `PawCare Pet Hospital - Official Invoice Receipt #${receipt.invoiceNumber}`;
-    const body = `Dear ${receipt.clientName},\n\nThank you for visiting PawCare Super Specialty Pet Hospital.\n\nHere are your payment details:\n- Invoice Number: #${receipt.invoiceNumber}\n- Date: ${receipt.dateStr}\n- Patient: ${receipt.petName || "Pet"}\n- Amount Paid: ₹${receipt.total.toFixed(2)}\n- Payment Mode: ${receipt.paymentMethod}\n\nItems:\n${receipt.lines.map((l) => `• ${l.description} x ${l.quantity} = ₹${l.total.toFixed(2)}`).join("\n")}\n\nTotal Paid: ₹${receipt.total.toFixed(2)}\nStatus: PAID\n\nWarm regards,\nPawCare Veterinary Hospital Team`;
+    const subject = `${clinicName} - Invoice Receipt #${receipt.invoiceNumber}`;
+    const body = `Dear ${receipt.clientName},\n\nThank you for visiting ${clinicName}.\n\nHere are your payment details:\n- Invoice Number: #${receipt.invoiceNumber}\n- Date: ${receipt.dateStr}\n- Patient: ${receipt.petName || "Pet"}\n- Amount Paid: ${formatMoney(receipt.total)}\n- Payment Mode: ${receipt.paymentMethod}\n\nItems:\n${receipt.lines.map((l) => `• ${l.description} x ${l.quantity} = ${formatMoney(l.total)}`).join("\n")}\n\nTotal Paid: ${formatMoney(receipt.total)}\nStatus: PAID\n\nWarm regards,\n${clinicName} Team`;
 
     setEmailSending(true);
     try {

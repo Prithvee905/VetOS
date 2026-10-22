@@ -31,6 +31,7 @@ import {
   type ClinicProfile,
   type Branch,
 } from "@/lib/api";
+import { formatMoney } from "@/lib/utils";
 import { QuickServiceModal } from "@/components/quick-service-modal";
 import { RecordSoapModal } from "@/components/record-soap-modal";
 
@@ -90,10 +91,9 @@ export default function DashboardPage() {
   }
 
   // Clinic Header Metadata
-  const clinicName = (clinic.data?.name || "PAWCARE SUPER SPECIALTY PET HOSPITAL").toUpperCase();
-  const mainBranch = branches.data?.items?.[0]?.name ? `${branches.data.items[0].name.toUpperCase()} BRANCH` : "DOWNTOWN FLAGSHIP BRANCH";
-  const gstin = clinic.data?.legalName || "29AAAAA0000A1Z5";
-  const operatingHours = "08:00 AM - 10:00 PM (Mon-Sun)";
+  const clinicName = (clinic.data?.name || "").toUpperCase();
+  const mainBranch = branches.data?.items?.[0]?.name ? `${branches.data.items[0].name.toUpperCase()} BRANCH` : "";
+  const clinicHeader = [clinicName, mainBranch].filter(Boolean).join(" • ");
   const userGreeting = session.data?.displayName || "Clinic Owner";
   const userRoles = session.data?.roles || [];
   const isOwner = userRoles.includes("OWNER");
@@ -126,7 +126,7 @@ export default function DashboardPage() {
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
           <div>
             <p className="text-[11px] font-bold tracking-wider text-teal-200/90 uppercase">
-              {clinicName} • {mainBranch}
+              {clinicHeader}
             </p>
             <h1 className="mt-1 text-2xl font-bold tracking-tight text-white sm:text-3xl">
               Welcome back, {userGreeting}
@@ -134,17 +134,6 @@ export default function DashboardPage() {
             <p className="mt-1 text-xs text-teal-100/80">
               Here is your veterinary clinic operating overview for today.
             </p>
-          </div>
-
-          <div className="flex items-center self-start md:self-auto">
-            <div className="rounded-xl border border-teal-500/30 bg-[#06262B]/70 px-4 py-2 text-right shadow-inner">
-              <p className="font-mono text-xs font-semibold tracking-wide text-teal-200">
-                GSTIN: {gstin}
-              </p>
-              <p className="text-[11px] text-teal-300/80">
-                {operatingHours}
-              </p>
-            </div>
           </div>
         </div>
       </div>
@@ -261,11 +250,11 @@ export default function DashboardPage() {
             <div>
               <p className="text-xs font-medium text-slate-500">Revenue (Invoiced)</p>
               <p className="mt-2 text-3xl font-extrabold tracking-tight text-slate-900">
-                ${Number(data.todayRevenue).toFixed(2)}
+                {formatMoney(data.todayRevenue, clinic.data?.currencyCode)}
               </p>
               <p className="mt-1 text-xs text-slate-400">
                 {Number(data.outstandingDues) > 0
-                  ? `$${Number(data.outstandingDues).toFixed(2)} outstanding dues`
+                  ? `${formatMoney(data.outstandingDues, clinic.data?.currencyCode)} outstanding dues`
                   : "No outstanding dues"}
               </p>
             </div>

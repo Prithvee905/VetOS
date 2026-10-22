@@ -18,6 +18,7 @@ import {
   type Product,
   type SessionUser,
 } from "@/lib/api";
+import { formatMoney } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 export default function ProcurementPage() {
@@ -266,7 +267,7 @@ export default function ProcurementPage() {
                             {po.status}
                           </span>
                         </td>
-                        <td className="p-3 font-bold text-teal-900">${Number(po.totalAmount).toFixed(2)}</td>
+                        <td className="p-3 font-bold text-teal-900">{formatMoney(po.totalAmount)}</td>
                         <td className="p-3 text-slate-500">{new Date(po.orderedAt).toLocaleDateString()}</td>
                         <td className="p-3">
                           {po.status === "ORDERED" && (
@@ -318,10 +319,10 @@ export default function ProcurementPage() {
                       <div>
                         <p className="font-bold text-slate-900">{l.productName}</p>
                         <p className="text-slate-500 font-mono text-[11px]">
-                          {l.quantity} units @ ${Number(l.unitCost).toFixed(2)}
+                          {l.quantity} units @ {formatMoney(l.unitCost)}
                         </p>
                       </div>
-                      <p className="font-bold text-slate-900">${Number(l.lineTotal).toFixed(2)}</p>
+                      <p className="font-bold text-slate-900">{formatMoney(l.lineTotal)}</p>
                     </div>
                   ))}
                 </div>
@@ -329,7 +330,7 @@ export default function ProcurementPage() {
                 <div className="border-t border-slate-100 pt-3 flex justify-between font-bold text-sm">
                   <span>Total Cost:</span>
                   <span className="text-teal-900">
-                    ${Number(selectedPoQuery.data.header.totalAmount).toFixed(2)}
+                    {formatMoney(selectedPoQuery.data.header.totalAmount)}
                   </span>
                 </div>
               </div>

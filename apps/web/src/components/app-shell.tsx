@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { currentUser, logout, searchGlobal, listBranches, type SessionUser, type SearchResults, type Branch } from "@/lib/api";
+import { formatMoney } from "@/lib/utils";
 import { NotificationBell } from "@/components/notification-bell";
 
 type NavLink = {
@@ -259,7 +260,7 @@ export function AppShell({ children, title }: { children: React.ReactNode; title
                         {searchResults.data.products.map((pr) => (
                           <div key={pr.id} className="rounded px-2 py-1.5 hover:bg-slate-50">
                             <p className="text-sm font-medium text-slate-900">{pr.name} ({pr.sku})</p>
-                            <p className="text-xs text-slate-500">${pr.salePrice}</p>
+                            <p className="text-xs text-slate-500">{formatMoney(pr.salePrice)}</p>
                           </div>
                         ))}
                       </div>
