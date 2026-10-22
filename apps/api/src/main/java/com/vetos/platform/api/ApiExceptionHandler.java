@@ -33,6 +33,19 @@ public class ApiExceptionHandler {
 
 	@ExceptionHandler(Exception.class)
 	public ResponseEntity<ApiError> handleUnexpected(Exception exception, HttpServletRequest request) {
+		if (exception instanceof org.springframework.web.ErrorResponse errorResponse) {
+			HttpStatus status = HttpStatus.resolve(errorResponse.getStatusCode().value());
+			String detail = errorResponse.getBody().getDetail();
+			return ResponseEntity.status(errorResponse.getStatusCode()).body(body(
+					status == null ? "REQUEST_ERROR" : status.name(),
+					detail == null || detail.isBlank() ? "The request could not be processed." : detail,
+					List.of(),
+					request));
+		}
+		if (exception instanceof org.springframework.http.converter.HttpMessageNotReadableException
+				|| exception instanceof org.springframework.beans.TypeMismatchException) {
+			return ResponseEntity.badRequest().body(body("BAD_REQUEST", "The request is malformed.", List.of(), request));
+		}
 		log.error("Unexpected error handling request {}: {}", request.getRequestURI(), exception.getMessage(), exception);
 		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
 				.body(body("INTERNAL_ERROR", "The request could not be completed.", List.of(), request));

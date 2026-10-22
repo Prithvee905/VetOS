@@ -99,7 +99,7 @@ public class ReminderService {
 						" has a veterinary appointment on " + a.startsAt() + ".";
 				communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
 						a.phone(), "APPOINTMENT_REMINDER", "en", msg,
-						java.util.List.of(a.clientName(), clinicName, a.patientName(), a.startsAt()), false));
+						templateValues(a.clientName(), clinicName, a.patientName(), a.startsAt()), false));
 				recordReminderAudit(clinicId, dedupeKey);
 				apptCount++;
 			}
@@ -114,7 +114,7 @@ public class ReminderService {
 						") for " + v.patientName() + " is due on " + v.nextDueOn() + ".";
 				communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
 						v.phone(), "VAX_REMINDER", "en", msg,
-						java.util.List.of(v.clientName(), clinicName, v.patientName(), v.vaccineName(), v.nextDueOn()), false));
+						templateValues(v.clientName(), clinicName, v.patientName(), v.vaccineName(), v.nextDueOn()), false));
 				recordReminderAudit(clinicId, dedupeKey);
 				vaxCount++;
 			}
@@ -129,7 +129,7 @@ public class ReminderService {
 						") for " + d.patientName() + " is due on " + d.nextDueOn() + ".";
 				communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
 						d.phone(), "DEWORM_REMINDER", "en", msg,
-						java.util.List.of(d.clientName(), clinicName, d.patientName(), d.productName(), d.nextDueOn()), false));
+						templateValues(d.clientName(), clinicName, d.patientName(), d.productName(), d.nextDueOn()), false));
 				recordReminderAudit(clinicId, dedupeKey);
 				dewormCount++;
 			}
@@ -145,7 +145,7 @@ public class ReminderService {
 						f.followUpOn() + ". Please confirm your visit.";
 				communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
 						f.phone(), "FOLLOWUP_REMINDER", "en", msg,
-						java.util.List.of(f.clientName(), clinicName, f.patientName(), f.followUpOn()), false));
+						templateValues(f.clientName(), clinicName, f.patientName(), f.followUpOn()), false));
 				recordReminderAudit(clinicId, dedupeKey);
 				followupCount++;
 			}
@@ -167,6 +167,15 @@ public class ReminderService {
 				queryLapsedClients(clinicId, 60),
 				queryAllClients(clinicId)
 		);
+	}
+
+	/** Meta template values must all be present; an empty value must not abort the whole reminder run. */
+	private static List<String> templateValues(String... values) {
+		List<String> result = new ArrayList<>(values.length);
+		for (String value : values) {
+			result.add(value == null || value.isBlank() ? "-" : value);
+		}
+		return result;
 	}
 
 	private String clinicName(UUID clinicId) {
