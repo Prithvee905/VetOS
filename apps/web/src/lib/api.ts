@@ -286,6 +286,30 @@ export async function issueInvoice(body: Record<string, unknown>): Promise<Invoi
   return apiJson<InvoiceRow>("/api/v1/invoices", { method: "POST", body: JSON.stringify(body) });
 }
 
+export type InvoiceDetail = {
+  id: string;
+  invoiceNumber: string;
+  status: string;
+  currencyCode: string;
+  subtotal: number | string;
+  discountTotal: number | string;
+  taxTotal: number | string;
+  total: number | string;
+  amountPaid: number | string;
+  issuedAt: string;
+  lines: {
+    id: string;
+    description: string;
+    quantity: number | string;
+    unitPrice: number | string;
+    lineTotal: number | string;
+  }[];
+};
+
+export async function getInvoice(invoiceId: string): Promise<InvoiceDetail> {
+  return apiJson<InvoiceDetail>(`/api/v1/invoices/${invoiceId}`);
+}
+
 export async function downloadInvoicePdf(invoiceId: string, invoiceNumber: string): Promise<void> {
   await ensureCsrf();
   const response = await fetchWithTimeout(`${apiUrl()}/api/v1/invoices/${invoiceId}/pdf`, {

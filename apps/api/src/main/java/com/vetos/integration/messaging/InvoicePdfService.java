@@ -48,6 +48,9 @@ public class InvoicePdfService {
 				document.add(new Paragraph("Patient: " + patientName, NORMAL));
 			}
 			document.add(new Paragraph("Status: " + invoice.status(), NORMAL));
+			// The built-in PDF font cannot draw the rupee sign, so amounts are labelled with the currency code.
+			String code = invoice.currencyCode() == null || invoice.currencyCode().isBlank() ? "INR" : invoice.currencyCode();
+			document.add(new Paragraph("Amounts in " + code, SMALL));
 			document.add(new Paragraph(" "));
 
 			PdfPTable table = new PdfPTable(4);
@@ -55,8 +58,8 @@ public class InvoicePdfService {
 			table.setWidths(new float[] { 4f, 1f, 1.5f, 1.5f });
 			addHeaderCell(table, "Description");
 			addHeaderCell(table, "Qty");
-			addHeaderCell(table, "Unit");
-			addHeaderCell(table, "Total");
+			addHeaderCell(table, "Unit (" + code + ")");
+			addHeaderCell(table, "Total (" + code + ")");
 			if (invoice.lines() == null || invoice.lines().isEmpty()) {
 				document.add(new Paragraph("No line items recorded on this invoice.", NORMAL));
 			}
@@ -70,10 +73,10 @@ public class InvoicePdfService {
 				document.add(table);
 			}
 			document.add(new Paragraph(" "));
-			document.add(new Paragraph("Subtotal: " + money(invoice.subtotal()), NORMAL));
-			document.add(new Paragraph("Tax: " + money(invoice.taxTotal()), NORMAL));
-			document.add(new Paragraph("Total: " + money(invoice.total()), TITLE));
-			document.add(new Paragraph("Paid: " + money(invoice.amountPaid()), NORMAL));
+			document.add(new Paragraph("Subtotal: " + code + " " + money(invoice.subtotal()), NORMAL));
+			document.add(new Paragraph("Tax: " + code + " " + money(invoice.taxTotal()), NORMAL));
+			document.add(new Paragraph("Total: " + code + " " + money(invoice.total()), TITLE));
+			document.add(new Paragraph("Paid: " + code + " " + money(invoice.amountPaid()), NORMAL));
 			document.add(new Paragraph(" "));
 			document.add(new Paragraph("Thank you for visiting us.", SMALL));
 

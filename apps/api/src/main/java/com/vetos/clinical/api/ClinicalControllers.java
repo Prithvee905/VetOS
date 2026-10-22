@@ -209,6 +209,14 @@ public class ClinicalControllers {
 				RequestIds.from(request));
 	}
 
+	@GetMapping("/invoices/{invoiceId}")
+	public InvoiceResponse getInvoice(
+			@AuthenticationPrincipal VetosAuthentication authentication,
+			@PathVariable UUID invoiceId) {
+		authorizationSupport.requirePermission(authentication, "INVOICE_WRITE");
+		return clinicalWorkflowService.getInvoice(authentication.clinicId(), invoiceId);
+	}
+
 	@GetMapping("/invoices/{invoiceId}/pdf")
 	public ResponseEntity<byte[]> downloadInvoicePdf(
 			@AuthenticationPrincipal VetosAuthentication authentication,

@@ -22,6 +22,7 @@ import {
   type PatientTimeline,
   currentUser,
   copilotAdvise,
+  getInvoice,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { RecordSoapModal } from "@/components/record-soap-modal";
@@ -52,7 +53,47 @@ export default function PatientsPage() {
   const [activePrintData, setActivePrintData] = useState<{
     prescription?: PrescriptionPrintData;
     invoice?: InvoicePrintData;
+    invoiceId?: string;
   }>({});
+  const [invoiceLoadingId, setInvoiceLoadingId] = useState<string | null>(null);
+  const [invoiceError, setInvoiceError] = useState<string | null>(null);
+
+  async function openInvoicePrint(invoiceId: string) {
+    setInvoiceLoadingId(invoiceId);
+    setInvoiceError(null);
+    try {
+      const invoice = await getInvoice(invoiceId);
+      const paid = Number(invoice.amountPaid) || 0;
+      const total = Number(invoice.total) || 0;
+      setPrintDocType("INVOICE");
+      setActivePrintData({
+        invoiceId: invoice.id,
+        invoice: {
+          invoiceNumber: invoice.invoiceNumber,
+          invoiceDate: new Date(invoice.issuedAt).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" }),
+          currencyCode: invoice.currencyCode,
+          clientName: timelineQuery.data?.client.displayName || "Pet Parent",
+          clientPhone: timelineQuery.data?.client.phone || "",
+          petName: timelineQuery.data?.patient.name,
+          lines: invoice.lines.map((line) => ({
+            description: line.description,
+            quantity: Number(line.quantity) || 0,
+            unitPrice: Number(line.unitPrice) || 0,
+            total: Number(line.lineTotal) || 0,
+          })),
+          subtotal: Number(invoice.subtotal) || 0,
+          taxAmount: Number(invoice.taxTotal) || 0,
+          grandTotal: total,
+          paymentStatus: paid >= total && total > 0 ? "PAID" : paid > 0 ? "PARTIAL" : "PENDING",
+        },
+      });
+      setPrintModalOpen(true);
+    } catch (error) {
+      setInvoiceError(error instanceof Error ? error.message : "Could not load this invoice.");
+    } finally {
+      setInvoiceLoadingId(null);
+    }
+  }
   const [chronologySearch, setChronologySearch] = useState("");
   const [chronologyTypeFilter, setChronologyTypeFilter] = useState("ALL");
 
@@ -706,30 +747,12 @@ export default function PatientsPage() {
                               {ev.eventType === "INVOICE" && (
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    setPrintDocType("INVOICE");
-                                    setActivePrintData({
-                                      invoice: {
-                                        invoiceNumber: ev.title.replace("Invoice #", "") || "INV-" + Date.now().toString().slice(-6),
-                                        invoiceDate: new Date(ev.timestamp).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }),
-                                        clientName: timelineQuery.data?.client.displayName || "Pet Parent",
-                                        clientPhone: timelineQuery.data?.client.phone || "",
-                                        petName: timelineQuery.data?.patient.name,
-                                        lines: [
-                                          { description: "Veterinary Hospital Care & Consultation", quantity: 1, unitPrice: 50.0, total: 50.0 },
-                                        ],
-                                        subtotal: 50.0,
-                                        taxAmount: 0,
-                                        grandTotal: 50.0,
-                                        paymentStatus: ev.status === "PAID" ? "PAID" : "PENDING",
-                                      },
-                                    });
-                                    setPrintModalOpen(true);
-                                  }}
-                                  className="flex items-center gap-1 rounded bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-200 transition border border-slate-200 shadow-2xs"
+                                  disabled={invoiceLoadingId === ev.id}
+                                  onClick={() => void openInvoicePrint(ev.id)}
+                                  className="flex items-center gap-1 rounded bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-200 disabled:opacity-60 transition border border-slate-200 shadow-2xs"
                                 >
                                   <Printer className="h-3 w-3" />
-                                  Print Invoice
+                                  {invoiceLoadingId === ev.id ? "Loading…" : "Print Invoice"}
                                 </button>
                               )}
                             </div>
@@ -1153,7 +1176,17 @@ export default function PatientsPage() {
         documentType={printDocType}
         prescriptionData={activePrintData.prescription}
         invoiceData={activePrintData.invoice}
+        invoiceId={printDocType === "INVOICE" ? activePrintData.invoiceId : undefined}
       />
+
+      {invoiceError && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-sm rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 shadow-lg">
+          {invoiceError}{" "}
+          <button type="button" className="font-semibold underline" onClick={() => setInvoiceError(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {healthProfileOpen && timelineQuery.data?.patient && (
         <PatientHealthProfileModal

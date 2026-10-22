@@ -1,10 +1,11 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { X, Printer, FileText, Receipt, CheckCircle, Sparkles, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { printHtmlElement } from "@/lib/print-html";
-import { downloadInvoicePdf } from "@/lib/api";
+import { downloadInvoicePdf, getClinicProfile } from "@/lib/api";
 
 export type PrescriptionPrintData = {
   clinicName?: string;
@@ -43,6 +44,7 @@ export type InvoicePrintData = {
   gstin?: string;
   invoiceNumber: string;
   invoiceDate: string;
+  currencyCode?: string;
   clientName: string;
   clientPhone?: string;
   petName?: string;
@@ -81,6 +83,12 @@ export function PrintableDocumentModal({
   const [thermalMode, setThermalMode] = useState(false);
   const [pdfDownloading, setPdfDownloading] = useState(false);
   const printableRef = useRef<HTMLDivElement>(null);
+  const clinicProfile = useQuery({
+    queryKey: ["clinic-profile"],
+    queryFn: getClinicProfile,
+    enabled: isOpen,
+    staleTime: 5 * 60_000,
+  });
 
   if (!isOpen) return null;
 
@@ -100,11 +108,17 @@ export function PrintableDocumentModal({
     }
   };
 
-  const defaultClinicName = "PAWCARE SUPER SPECIALTY VETERINARY HOSPITAL";
-  const defaultAddress = "104 Healthcare Boulevard, Medical Enclave, Central City";
-  const defaultPhone = "+91 98765 43210";
-  const defaultEmail = "care@pawcareclinic.test";
-  const defaultGstin = "GSTIN: 29AAAAA0000A1Z5";
+  // Clinic details come from the clinic profile; nothing is invented when a field is not set.
+  const profile = clinicProfile.data;
+  const defaultClinicName = profile?.legalName || profile?.name || "";
+  const defaultAddress = "";
+  const defaultPhone = profile?.phone || "";
+  const defaultEmail = profile?.email || "";
+  const defaultGstin = "";
+
+  const currency = invoiceData?.currencyCode || profile?.currencyCode || "INR";
+  const money = (amount: number) =>
+    new Intl.NumberFormat("en-IN", { style: "currency", currency }).format(Number.isFinite(amount) ? amount : 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs overflow-y-auto print:p-0 print:bg-white print:fixed print:inset-0">
@@ -192,15 +206,24 @@ export function PrintableDocumentModal({
                     <h1 className="text-lg font-black tracking-tight text-teal-950 uppercase">
                       {prescriptionData.clinicName || defaultClinicName}
                     </h1>
-                    <p className="text-xs text-slate-600 mt-0.5">
-                      {prescriptionData.clinicAddress || defaultAddress}
-                    </p>
+                    {(prescriptionData.clinicAddress || defaultAddress) && (
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        {prescriptionData.clinicAddress || defaultAddress}
+                      </p>
+                    )}
                     <p className="text-[11px] text-slate-500">
-                      Tel: {prescriptionData.clinicPhone || defaultPhone} • Email: {prescriptionData.clinicEmail || defaultEmail}
+                      {[
+                        (prescriptionData.clinicPhone || defaultPhone) && `Tel: ${prescriptionData.clinicPhone || defaultPhone}`,
+                        (prescriptionData.clinicEmail || defaultEmail) && `Email: ${prescriptionData.clinicEmail || defaultEmail}`,
+                      ]
+                        .filter(Boolean)
+                        .join(" • ")}
                     </p>
-                    <p className="text-[10px] font-semibold text-slate-500 mt-0.5">
-                      {prescriptionData.gstin || defaultGstin}
-                    </p>
+                    {(prescriptionData.gstin || defaultGstin) && (
+                      <p className="text-[10px] font-semibold text-slate-500 mt-0.5">
+                        {prescriptionData.gstin || defaultGstin}
+                      </p>
+                    )}
                   </div>
                   <div className="text-right">
                     <span className="inline-block rounded-md bg-teal-50 border border-teal-200 px-2 py-0.5 text-[11px] font-bold text-teal-900 uppercase">
@@ -337,9 +360,15 @@ export function PrintableDocumentModal({
               {thermalMode ? (
                 <div className="space-y-2 text-center text-slate-900">
                   <h2 className="font-bold text-sm uppercase">{invoiceData.clinicName || defaultClinicName}</h2>
-                  <p className="text-[10px] text-slate-600">{invoiceData.clinicAddress || defaultAddress}</p>
-                  <p className="text-[10px] text-slate-600">Tel: {invoiceData.clinicPhone || defaultPhone}</p>
-                  <p className="text-[10px] font-bold">{invoiceData.gstin || defaultGstin}</p>
+                  {(invoiceData.clinicAddress || defaultAddress) && (
+                    <p className="text-[10px] text-slate-600">{invoiceData.clinicAddress || defaultAddress}</p>
+                  )}
+                  {(invoiceData.clinicPhone || defaultPhone) && (
+                    <p className="text-[10px] text-slate-600">Tel: {invoiceData.clinicPhone || defaultPhone}</p>
+                  )}
+                  {(invoiceData.gstin || defaultGstin) && (
+                    <p className="text-[10px] font-bold">{invoiceData.gstin || defaultGstin}</p>
+                  )}
                   <div className="border-b border-dashed border-slate-400 my-1"></div>
 
                   <div className="text-left text-[10px] space-y-0.5">
@@ -379,8 +408,8 @@ export function PrintableDocumentModal({
                         <tr key={idx}>
                           <td className="py-1 pr-1 truncate max-w-[120px]">{line.description}</td>
                           <td className="text-center py-1">{line.quantity}</td>
-                          <td className="text-right py-1">${line.unitPrice.toFixed(2)}</td>
-                          <td className="text-right py-1 font-bold">${line.total.toFixed(2)}</td>
+                          <td className="text-right py-1">{money(line.unitPrice)}</td>
+                          <td className="text-right py-1 font-bold">{money(line.total)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -390,17 +419,17 @@ export function PrintableDocumentModal({
                   <div className="text-right text-[10px] space-y-0.5">
                     <div className="flex justify-between">
                       <span>Subtotal:</span>
-                      <span>${invoiceData.subtotal.toFixed(2)}</span>
+                      <span>{money(invoiceData.subtotal)}</span>
                     </div>
                     {invoiceData.taxAmount > 0 && (
                       <div className="flex justify-between">
                         <span>Tax / GST:</span>
-                        <span>${invoiceData.taxAmount.toFixed(2)}</span>
+                        <span>{money(invoiceData.taxAmount)}</span>
                       </div>
                     )}
                     <div className="flex justify-between text-xs font-bold pt-1 border-t border-slate-800">
                       <span>GRAND TOTAL:</span>
-                      <span>${invoiceData.grandTotal.toFixed(2)}</span>
+                      <span>{money(invoiceData.grandTotal)}</span>
                     </div>
                     <div className="flex justify-between pt-1 text-[10px]">
                       <span>Payment Status:</span>
@@ -424,11 +453,20 @@ export function PrintableDocumentModal({
                       <h1 className="text-lg font-black tracking-tight text-slate-900 uppercase">
                         {invoiceData.clinicName || defaultClinicName}
                       </h1>
-                      <p className="text-xs text-slate-600 mt-0.5">{invoiceData.clinicAddress || defaultAddress}</p>
+                      {(invoiceData.clinicAddress || defaultAddress) && (
+                        <p className="text-xs text-slate-600 mt-0.5">{invoiceData.clinicAddress || defaultAddress}</p>
+                      )}
                       <p className="text-[11px] text-slate-500">
-                        Tel: {invoiceData.clinicPhone || defaultPhone} • Email: {invoiceData.clinicEmail || defaultEmail}
+                        {[
+                          (invoiceData.clinicPhone || defaultPhone) && `Tel: ${invoiceData.clinicPhone || defaultPhone}`,
+                          (invoiceData.clinicEmail || defaultEmail) && `Email: ${invoiceData.clinicEmail || defaultEmail}`,
+                        ]
+                          .filter(Boolean)
+                          .join(" • ")}
                       </p>
-                      <p className="text-[10px] font-bold text-slate-600 mt-0.5">{invoiceData.gstin || defaultGstin}</p>
+                      {(invoiceData.gstin || defaultGstin) && (
+                        <p className="text-[10px] font-bold text-slate-600 mt-0.5">{invoiceData.gstin || defaultGstin}</p>
+                      )}
                     </div>
                     <div className="text-right">
                       <span className="inline-block rounded-md bg-emerald-50 border border-emerald-300 px-2 py-0.5 text-xs font-bold text-emerald-800 uppercase">
@@ -483,8 +521,8 @@ export function PrintableDocumentModal({
                           <td className="p-2 border-r border-slate-100 text-slate-500">{idx + 1}</td>
                           <td className="p-2 border-r border-slate-100 font-semibold">{line.description}</td>
                           <td className="p-2 border-r border-slate-100 text-center">{line.quantity}</td>
-                          <td className="p-2 border-r border-slate-100 text-right">${line.unitPrice.toFixed(2)}</td>
-                          <td className="p-2 text-right font-bold text-slate-900">${line.total.toFixed(2)}</td>
+                          <td className="p-2 border-r border-slate-100 text-right">{money(line.unitPrice)}</td>
+                          <td className="p-2 text-right font-bold text-slate-900">{money(line.total)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -495,17 +533,17 @@ export function PrintableDocumentModal({
                     <div className="w-64 space-y-1.5 text-xs">
                       <div className="flex justify-between text-slate-600">
                         <span>Subtotal:</span>
-                        <span className="font-semibold">${invoiceData.subtotal.toFixed(2)}</span>
+                        <span className="font-semibold">{money(invoiceData.subtotal)}</span>
                       </div>
                       {invoiceData.taxAmount > 0 && (
                         <div className="flex justify-between text-slate-600">
                           <span>Tax / GST:</span>
-                          <span className="font-semibold">${invoiceData.taxAmount.toFixed(2)}</span>
+                          <span className="font-semibold">{money(invoiceData.taxAmount)}</span>
                         </div>
                       )}
                       <div className="flex justify-between text-sm font-bold text-slate-900 border-t border-slate-200 pt-1.5">
                         <span>Net Payable:</span>
-                        <span className="text-teal-800 font-black text-base">${invoiceData.grandTotal.toFixed(2)}</span>
+                        <span className="text-teal-800 font-black text-base">{money(invoiceData.grandTotal)}</span>
                       </div>
                     </div>
                   </div>

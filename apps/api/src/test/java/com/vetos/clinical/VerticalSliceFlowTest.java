@@ -1,5 +1,6 @@
 package com.vetos.clinical;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -165,6 +166,13 @@ class VerticalSliceFlowTest extends ApiIntegrationTest {
 				.andReturn();
 		String invoiceId = readJson(invoice, "id");
 		String invoiceTotal = readJson(invoice, "total");
+
+		mockMvc.perform(get("/api/v1/invoices/" + invoiceId)
+						.cookie(new Cookie("vetos_access", access)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.id").value(invoiceId))
+				.andExpect(jsonPath("$.currencyCode").exists())
+				.andExpect(jsonPath("$.lines[0].description").exists());
 
 		mockMvc.perform(post("/api/v1/payments")
 						.header("Idempotency-Key", "pay-" + invoiceId)
