@@ -26,6 +26,8 @@ export type ClinicProfile = {
   loyalDiscountPercent?: number;
   ngoConsultationDiscountPercent?: number;
   allowMedicineDiscount?: boolean;
+  address?: string | null;
+  gstin?: string | null;
   version: number;
 };
 

@@ -247,8 +247,8 @@ public class ClinicalControllers {
 			catch (Exception ignored) {
 			}
 		}
-		String clinicLabel = clinicalWorkflowService.clinicDisplayName(authentication.clinicId());
-		byte[] pdf = invoicePdfService.render(invoice, clientName, patientName, clinicLabel);
+		byte[] pdf = invoicePdfService.render(invoice, clientName, patientName,
+				clinicalWorkflowService.clinicInvoiceHeader(authentication.clinicId()));
 		String filename = "invoice-" + invoice.invoiceNumber().replaceAll("[^a-zA-Z0-9._-]", "_") + ".pdf";
 		return ResponseEntity.ok()
 				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")

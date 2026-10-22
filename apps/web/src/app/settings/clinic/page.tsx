@@ -24,6 +24,8 @@ export default function ClinicSettingsPage() {
       apiJson<ClinicProfile>("/api/v1/clinic", { method: "PATCH", body: JSON.stringify(payload) }),
     onSuccess: (data) => {
       client.setQueryData(["clinic"], data);
+      // Other screens (invoices, receipts) read the profile under this key.
+      client.invalidateQueries({ queryKey: ["clinic-profile"] });
       setForm({});
       setMessage("Clinic profile saved.");
     },
@@ -96,6 +98,48 @@ export default function ClinicSettingsPage() {
           value={values.email ?? ""}
           onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
         />
+
+        {/* Tax invoice details */}
+        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
+          <p className="text-sm font-bold text-slate-900">Tax invoice details</p>
+          <p className="text-xs text-slate-500">Printed on invoices, receipts and the invoice PDF. Leave blank if not applicable.</p>
+          <label className="block text-sm font-medium" htmlFor="legalName">
+            Registered business name
+          </label>
+          <input
+            id="legalName"
+            className="w-full rounded-md border border-slate-300 px-3 py-2"
+            value={values.legalName ?? ""}
+            placeholder={values.name ?? ""}
+            onChange={(event) => setForm((current) => ({ ...current, legalName: event.target.value }))}
+          />
+          <label className="block text-sm font-medium" htmlFor="address">
+            Address
+          </label>
+          <textarea
+            id="address"
+            rows={2}
+            className="w-full rounded-md border border-slate-300 px-3 py-2"
+            value={values.address ?? ""}
+            onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))}
+          />
+          <label className="block text-sm font-medium" htmlFor="gstin">
+            GST number (GSTIN)
+          </label>
+          <input
+            id="gstin"
+            className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono uppercase"
+            maxLength={15}
+            placeholder="e.g. 36ABCDE1234F1Z5"
+            value={values.gstin ?? ""}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, gstin: event.target.value.toUpperCase().replace(/[^0-9A-Z]/g, "") }))
+            }
+          />
+          {values.gstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(values.gstin) && (
+            <p className="text-xs text-amber-700">A GSTIN has 15 characters, e.g. 36ABCDE1234F1Z5.</p>
+          )}
+        </div>
 
         {/* Discount & Pricing Rules */}
         <div className="rounded-xl bg-teal-50/60 border border-teal-200 p-4 space-y-4">
@@ -247,6 +291,9 @@ export default function ClinicSettingsPage() {
               name: values.name,
               phone: values.phone || null,
               email: values.email || null,
+              legalName: values.legalName ?? "",
+              address: values.address ?? "",
+              gstin: values.gstin ?? "",
               maxStaffDiscountPercent: values.maxStaffDiscountPercent ?? 20,
               loyalDiscountPercent: values.loyalDiscountPercent ?? 30,
               ngoConsultationDiscountPercent: values.ngoConsultationDiscountPercent ?? 50,

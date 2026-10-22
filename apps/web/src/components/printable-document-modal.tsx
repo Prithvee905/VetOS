@@ -111,10 +111,10 @@ export function PrintableDocumentModal({
   // Clinic details come from the clinic profile; nothing is invented when a field is not set.
   const profile = clinicProfile.data;
   const defaultClinicName = profile?.legalName || profile?.name || "";
-  const defaultAddress = "";
+  const defaultAddress = profile?.address || "";
   const defaultPhone = profile?.phone || "";
   const defaultEmail = profile?.email || "";
-  const defaultGstin = "";
+  const defaultGstin = profile?.gstin ? `GSTIN: ${profile.gstin}` : "";
 
   const currency = invoiceData?.currencyCode || profile?.currencyCode || "INR";
   const money = (amount: number) =>

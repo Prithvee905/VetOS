@@ -26,15 +26,32 @@ public class InvoicePdfService {
 	private static final Font SMALL = font(BaseFont.HELVETICA, 9);
 	private static final Font HEADER = font(BaseFont.HELVETICA_BOLD, 9);
 
+	/** Clinic details printed in the invoice header; any field may be blank. */
+	public record ClinicHeader(String name, String address, String gstin, String phone) {
+	}
+
 	public byte[] render(InvoiceResponse invoice, String clientName, String patientName, String clinicLabel) {
+		return render(invoice, clientName, patientName, new ClinicHeader(clinicLabel, null, null, null));
+	}
+
+	public byte[] render(InvoiceResponse invoice, String clientName, String patientName, ClinicHeader header) {
 		try {
 			Document document = new Document();
 			ByteArrayOutputStream output = new ByteArrayOutputStream();
 			PdfWriter.getInstance(document, output);
 			document.open();
 
-			String clinic = clinicLabel == null || clinicLabel.isBlank() ? "VetOS Clinic" : clinicLabel;
+			String clinic = header == null || header.name() == null || header.name().isBlank() ? "VetOS Clinic" : header.name();
 			document.add(new Paragraph(clinic, TITLE));
+			if (header != null && header.address() != null && !header.address().isBlank()) {
+				document.add(new Paragraph(header.address(), SMALL));
+			}
+			if (header != null && header.phone() != null && !header.phone().isBlank()) {
+				document.add(new Paragraph("Tel: " + header.phone(), SMALL));
+			}
+			if (header != null && header.gstin() != null && !header.gstin().isBlank()) {
+				document.add(new Paragraph("GSTIN: " + header.gstin(), SMALL));
+			}
 			document.add(new Paragraph("Invoice " + invoice.invoiceNumber(), NORMAL));
 			if (invoice.issuedAt() != null) {
 				String when = DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm")

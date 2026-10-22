@@ -36,6 +36,10 @@ public class ClinicEntity {
 
 	private String email;
 
+	private String address;
+
+	private String gstin;
+
 	@Column(name = "status", nullable = false)
 	private String status;
 
@@ -74,6 +78,22 @@ public class ClinicEntity {
 
 	public String getLegalName() {
 		return legalName;
+	}
+
+	public String getAddress() {
+		return address;
+	}
+
+	public void setAddress(String address) {
+		this.address = address;
+	}
+
+	public String getGstin() {
+		return gstin;
+	}
+
+	public void setGstin(String gstin) {
+		this.gstin = gstin;
 	}
 
 	public void setLegalName(String legalName) {

@@ -94,6 +94,26 @@ class ClinicUserAdminTest extends ApiIntegrationTest {
 				.andExpect(jsonPath("$.name").value("Updated Clinic"))
 				.andExpect(jsonPath("$.phone").value("9999999999"));
 
+		mockMvc.perform(patch("/api/v1/clinic")
+						.with(SecurityMockMvcRequestPostProcessors.csrf())
+						.cookie(accessCookie(ownerAccess))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"version":1,"gstin":"NOT-A-GSTIN"}
+								"""))
+				.andExpect(status().isBadRequest());
+
+		mockMvc.perform(patch("/api/v1/clinic")
+						.with(SecurityMockMvcRequestPostProcessors.csrf())
+						.cookie(accessCookie(ownerAccess))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"version":1,"address":"12 MG Road, Hyderabad 500001","gstin":"36ABCDE1234F1Z5"}
+								"""))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.address").value("12 MG Road, Hyderabad 500001"))
+				.andExpect(jsonPath("$.gstin").value("36ABCDE1234F1Z5"));
+
 		mockMvc.perform(get("/api/v1/users").cookie(accessCookie(ownerAccess)))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.items.length()").value(2));

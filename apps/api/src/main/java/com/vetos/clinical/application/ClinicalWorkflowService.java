@@ -86,6 +86,16 @@ public class ClinicalWorkflowService {
 		return clinicRepository.findById(clinicId).map(com.vetos.clinic.infrastructure.ClinicEntity::getName).orElse("VetOS Clinic");
 	}
 
+	public com.vetos.integration.messaging.InvoicePdfService.ClinicHeader clinicInvoiceHeader(UUID clinicId) {
+		return clinicRepository.findById(clinicId)
+				.map(c -> new com.vetos.integration.messaging.InvoicePdfService.ClinicHeader(
+						c.getLegalName() != null && !c.getLegalName().isBlank() ? c.getLegalName() : c.getName(),
+						c.getAddress(),
+						c.getGstin(),
+						c.getPhone()))
+				.orElse(new com.vetos.integration.messaging.InvoicePdfService.ClinicHeader("VetOS Clinic", null, null, null));
+	}
+
 	public ClientResponse getClient(UUID clinicId, UUID clientId) {
 		List<ClientResponse> rows = jdbcTemplate.query("""
 				select id, display_name, phone, email, notes, consent_whatsapp, consent_email, status, coalesce(category, 'STANDARD') as category, version

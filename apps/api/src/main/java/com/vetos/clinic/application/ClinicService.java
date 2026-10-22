@@ -70,6 +70,12 @@ public class ClinicService {
 		if (request.allowMedicineDiscount() != null) {
 			clinic.setAllowMedicineDiscount(request.allowMedicineDiscount());
 		}
+		if (request.address() != null) {
+			clinic.setAddress(request.address().isBlank() ? null : request.address().trim());
+		}
+		if (request.gstin() != null) {
+			clinic.setGstin(request.gstin().isBlank() ? null : request.gstin().trim().toUpperCase());
+		}
 		clinic.setUpdatedAt(Instant.now());
 		ClinicEntity saved = clinicRepository.saveAndFlush(clinic);
 		auditRecorder.record(clinicId, actorUserId, "UPDATE", "clinic", clinicId, requestId);
@@ -95,6 +101,8 @@ public class ClinicService {
 				clinic.getLoyalDiscountPercent() != null ? clinic.getLoyalDiscountPercent() : new BigDecimal("30.00"),
 				clinic.getNgoConsultationDiscountPercent() != null ? clinic.getNgoConsultationDiscountPercent() : new BigDecimal("50.00"),
 				clinic.isAllowMedicineDiscount(),
+				clinic.getAddress(),
+				clinic.getGstin(),
 				clinic.getVersion());
 	}
 

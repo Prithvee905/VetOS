@@ -90,8 +90,8 @@ public class WhatsAppOutboxHandler implements OutboxHandler {
 			}
 			if (!sessionMessage) {
 				templateKey = "INVOICE_PDF";
-				String clinicLabel = clinicalWorkflowService.clinicDisplayName(clinicId);
-				byte[] pdf = invoicePdfService.render(invoice, clientName, patientName, clinicLabel);
+				byte[] pdf = invoicePdfService.render(invoice, clientName, patientName,
+						clinicalWorkflowService.clinicInvoiceHeader(clinicId));
 				headerDocumentFilename = safePdfFilename(invoice.invoiceNumber());
 				headerDocumentMediaId = mediaUploader.uploadPdf(pdf, headerDocumentFilename);
 				if (!StringUtils.hasText(headerDocumentMediaId)) {
