@@ -17,6 +17,9 @@ import {
   listGrooming,
   bookGrooming,
   updateGroomingStatus,
+  listServices,
+  appendToBasket,
+  type ServiceItem,
   type PatientRow,
   type LabOrder,
   type SurgeryRecord,
@@ -27,13 +30,15 @@ import { Button } from "@/components/ui/button";
 import { Paperclip, ShoppingCart } from "lucide-react";
 import { FileAttachmentsModal } from "@/components/file-attachments-modal";
 import { STANDARD_VETERINARY_SURGERIES, type StandardSurgery } from "@/lib/clinical-constants";
+import { formatMoney } from "@/lib/utils";
 
-const GROOMING_TIER_RATES = {
-  SMALL: 600,
-  MEDIUM: 1000,
-  LARGE: 1500,
-  GIANT: 2000,
-} as const;
+/** Price of the first active catalog service whose name matches every keyword, as a form value ("" if none). */
+function catalogPrice(services: ServiceItem[] | undefined, ...keywords: string[]): string {
+  const match = (services ?? []).find(
+    (s) => (!s.status || s.status.toUpperCase() === "ACTIVE") && keywords.every((k) => s.name.toLowerCase().includes(k.toLowerCase()))
+  );
+  return match ? String(match.defaultPrice) : "";
+}
 
 export default function SpecialtiesPage() {
   const queryClient = useQueryClient();
@@ -52,26 +57,28 @@ export default function SpecialtiesPage() {
   // Forms
   const [selectedPatientId, setSelectedPatientId] = useState("");
   const [testName, setTestName] = useState("");
-  const [labCharge, setLabCharge] = useState("500");
+  const [labCharge, setLabCharge] = useState("");
 
   const [procedureName, setProcedureName] = useState("");
-  const [surgeryCharge, setSurgeryCharge] = useState("3500");
+  const [surgeryCharge, setSurgeryCharge] = useState("");
   const [selectedSurgeryCategory, setSelectedSurgeryCategory] = useState<string>("ALL");
 
   function handleQuickSchedule(surgery: StandardSurgery) {
     setProcedureName(surgery.name);
-    setSurgeryCharge(surgery.defaultCharge.toString());
+    // Price comes from the clinic's catalog, not the built-in reference list.
+    setSurgeryCharge(catalogPrice(servicesQuery.data, surgery.name.split(" (")[0]));
     setShowSurgeryModal(true);
   }
   const [scheduledAt, setScheduledAt] = useState(new Date().toISOString().slice(0, 16));
 
-  const [dailyRate, setDailyRate] = useState("800");
+  const [dailyRate, setDailyRate] = useState("");
 
   const [dogSize, setDogSize] = useState<"SMALL" | "MEDIUM" | "LARGE" | "GIANT">("MEDIUM");
-  const [groomingCharge, setGroomingCharge] = useState("1000");
+  const [groomingCharge, setGroomingCharge] = useState("");
   const [groomingNotes, setGroomingNotes] = useState("");
 
   // Queries
+  const servicesQuery = useQuery({ queryKey: ["services"], queryFn: listServices });
   const patientsQuery = useQuery<PatientRow[]>({
     queryKey: ["patients"],
     queryFn: () => listPatients(),
@@ -97,39 +104,51 @@ export default function SpecialtiesPage() {
     queryFn: () => listGrooming(),
   });
 
-  // Basket action
-  function sendSpecialtyToBasket(item: { id: string; description: string; unitPrice: number; patientId?: string }) {
-    if (typeof window === "undefined") return;
-    const raw = localStorage.getItem("vetos_active_basket");
-    const currentLines = raw ? JSON.parse(raw) : [];
-    const newLine = {
-      id: item.id,
-      sourceType: "SERVICE",
-      description: item.description,
-      quantity: 1,
-      unitPrice: Number(item.unitPrice || 0),
-      taxRate: 0,
-    };
-    localStorage.setItem("vetos_active_basket", JSON.stringify([...currentLines, newLine]));
-    if (item.patientId) {
-      localStorage.setItem("vetos_active_basket_patient_id", item.patientId);
+  // Basket action: adds the charge to the patient's billing basket on the server.
+  const [basketError, setBasketError] = useState<string | null>(null);
+  async function sendSpecialtyToBasket(item: { id: string; description: string; unitPrice: number; patientId?: string }) {
+    if (!item.patientId) {
+      setBasketError("This record has no patient, so it cannot be billed.");
+      return;
     }
-    router.push("/clinic");
+    const price = Number(item.unitPrice || 0);
+    const clientId = patientsQuery.data?.find((p) => p.id === item.patientId)?.clientId;
+    try {
+      await appendToBasket(item.patientId, clientId, [
+        {
+          id: item.id,
+          sourceType: "SERVICE",
+          description: item.description,
+          quantity: 1,
+          unitPrice: price,
+          taxRate: 0,
+          priceMissing: !(price > 0),
+        },
+      ]);
+      await queryClient.invalidateQueries({ queryKey: ["open-baskets"] });
+      router.push("/clinic");
+    } catch (err) {
+      setBasketError(err instanceof Error ? err.message : "Could not add to the billing basket.");
+    }
+  }
+
+  function groomingPrice(size: "SMALL" | "MEDIUM" | "LARGE" | "GIANT"): string {
+    return catalogPrice(servicesQuery.data, "groom", size) || catalogPrice(servicesQuery.data, "groom");
   }
 
   function handleSelectPatientForGrooming(pId: string) {
     setSelectedPatientId(pId);
     const pat = patientsQuery.data?.find((p) => p.id === pId);
-    if (pat?.sizeCategory && pat.sizeCategory in GROOMING_TIER_RATES) {
-      const sz = pat.sizeCategory as keyof typeof GROOMING_TIER_RATES;
+    if (pat?.sizeCategory && ["SMALL", "MEDIUM", "LARGE", "GIANT"].includes(pat.sizeCategory)) {
+      const sz = pat.sizeCategory as "SMALL" | "MEDIUM" | "LARGE" | "GIANT";
       setDogSize(sz);
-      setGroomingCharge(String(GROOMING_TIER_RATES[sz]));
+      setGroomingCharge(groomingPrice(sz));
     }
   }
 
   function handleDogSizeChange(newSize: "SMALL" | "MEDIUM" | "LARGE" | "GIANT") {
     setDogSize(newSize);
-    setGroomingCharge(String(GROOMING_TIER_RATES[newSize]));
+    setGroomingCharge(groomingPrice(newSize));
   }
 
   // Mutations
@@ -145,7 +164,7 @@ export default function SpecialtiesPage() {
       setShowLabModal(false);
       setSelectedPatientId("");
       setTestName("");
-      setLabCharge("500");
+      setLabCharge("");
     },
   });
 
@@ -167,7 +186,7 @@ export default function SpecialtiesPage() {
       setShowSurgeryModal(false);
       setSelectedPatientId("");
       setProcedureName("");
-      setSurgeryCharge("3500");
+      setSurgeryCharge("");
     },
   });
 
@@ -187,7 +206,7 @@ export default function SpecialtiesPage() {
       queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
       setShowAdmitModal(false);
       setSelectedPatientId("");
-      setDailyRate("800");
+      setDailyRate("");
     },
   });
 
@@ -214,7 +233,7 @@ export default function SpecialtiesPage() {
       setSelectedPatientId("");
       setGroomingNotes("");
       setDogSize("MEDIUM");
-      setGroomingCharge("1000");
+      setGroomingCharge("");
     },
   });
 
@@ -225,6 +244,14 @@ export default function SpecialtiesPage() {
 
   return (
     <div className="space-y-6">
+      {basketError && (
+        <div className="flex items-center justify-between rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-800">
+          <span>{basketError}</span>
+          <button type="button" className="font-semibold underline" onClick={() => setBasketError(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Clinical Specialties & In-Patient Units</h2>
@@ -557,8 +584,12 @@ export default function SpecialtiesPage() {
 
                   <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-200/60">
                     <div>
-                      <span className="text-[10px] text-slate-500">Standard Fee:</span>
-                      <span className="text-xs font-bold text-slate-900 ml-1">₹{s.defaultCharge.toLocaleString("en-IN")}</span>
+                      <span className="text-[10px] text-slate-500">Your fee:</span>
+                      <span className="text-xs font-bold text-slate-900 ml-1">
+                        {catalogPrice(servicesQuery.data, s.name.split(" (")[0])
+                          ? formatMoney(catalogPrice(servicesQuery.data, s.name.split(" (")[0]))
+                          : "Not in catalog"}
+                      </span>
                     </div>
                     <button
                       type="button"
@@ -833,7 +864,7 @@ export default function SpecialtiesPage() {
                     const found = STANDARD_VETERINARY_SURGERIES.find((s) => s.code === e.target.value);
                     if (found) {
                       setProcedureName(found.name);
-                      setSurgeryCharge(found.defaultCharge.toString());
+                      setSurgeryCharge(catalogPrice(servicesQuery.data, found.name.split(" (")[0]));
                     }
                   }}
                   defaultValue=""
@@ -841,7 +872,7 @@ export default function SpecialtiesPage() {
                   <option value="">-- Choose standard surgical procedure (18 presets) --</option>
                   {STANDARD_VETERINARY_SURGERIES.map((s) => (
                     <option key={s.code} value={s.code}>
-                      [{s.category}] {s.name} — ₹{s.defaultCharge} ({s.species})
+                      [{s.category}] {s.name} ({s.species})
                     </option>
                   ))}
                 </select>
@@ -859,7 +890,7 @@ export default function SpecialtiesPage() {
                 <datalist id="standard-surgeries-datalist">
                   {STANDARD_VETERINARY_SURGERIES.map((s) => (
                     <option key={s.code} value={s.name}>
-                      {s.category} • ₹{s.defaultCharge} ({s.species})
+                      {s.category} ({s.species})
                     </option>
                   ))}
                 </datalist>

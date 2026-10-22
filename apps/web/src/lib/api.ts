@@ -310,6 +310,99 @@ export async function getInvoice(invoiceId: string): Promise<InvoiceDetail> {
   return apiJson<InvoiceDetail>(`/api/v1/invoices/${invoiceId}`);
 }
 
+// ----------------------------------------------------
+// Server-side billing basket (one open basket per patient)
+// ----------------------------------------------------
+export type ServerBasket<L> = {
+  patientId: string;
+  clientId: string | null;
+  lines: L[];
+  invoiceId: string | null;
+  updatedAt: string | null;
+};
+
+export type BasketSummary = {
+  patientId: string;
+  clientId: string | null;
+  patientName: string;
+  clientName: string | null;
+  lineCount: number;
+  invoiceId: string | null;
+  updatedAt: string;
+};
+
+export async function getBasket<L>(patientId: string): Promise<ServerBasket<L>> {
+  return apiJson<ServerBasket<L>>(`/api/v1/baskets/${patientId}`);
+}
+
+export async function saveBasket<L>(
+  patientId: string,
+  body: { clientId?: string | null; lines: L[]; invoiceId?: string | null }
+): Promise<ServerBasket<L>> {
+  return apiJson<ServerBasket<L>>(`/api/v1/baskets/${patientId}`, { method: "PUT", body: JSON.stringify(body) });
+}
+
+export async function clearBasket(patientId: string): Promise<void> {
+  await apiJson<void>(`/api/v1/baskets/${patientId}`, { method: "DELETE" });
+}
+
+export async function listOpenBaskets(): Promise<BasketSummary[]> {
+  return apiJson<BasketSummary[]>("/api/v1/baskets");
+}
+
+/** Adds lines to a patient's server basket, keeping whatever is already there. */
+export async function appendToBasket<L>(patientId: string, clientId: string | null | undefined, lines: L[]): Promise<ServerBasket<L>> {
+  const current = await getBasket<L>(patientId);
+  return saveBasket<L>(patientId, {
+    clientId: clientId ?? current.clientId,
+    lines: [...current.lines, ...lines],
+    invoiceId: current.invoiceId,
+  });
+}
+
+// ----------------------------------------------------
+// Patient health profile (server-side)
+// ----------------------------------------------------
+export type HealthProfileResponse<T> = {
+  patientId: string;
+  profile: T | null;
+  updatedAt: string | null;
+};
+
+export async function getHealthProfile<T>(patientId: string): Promise<HealthProfileResponse<T>> {
+  return apiJson<HealthProfileResponse<T>>(`/api/v1/patients/${patientId}/health-profile`);
+}
+
+export async function saveHealthProfile<T>(patientId: string, profile: T): Promise<HealthProfileResponse<T>> {
+  return apiJson<HealthProfileResponse<T>>(`/api/v1/patients/${patientId}/health-profile`, {
+    method: "PUT",
+    body: JSON.stringify({ profile }),
+  });
+}
+
+export type PrescriptionDetail = {
+  id: string;
+  consultationId: string;
+  patientId: string;
+  doctorUserId: string;
+  status: string;
+  notes: string | null;
+  items: {
+    id: string;
+    medicineName: string;
+    quantity: number | string;
+    dosage: string | null;
+    frequency: string | null;
+    duration: string | null;
+    route: string | null;
+    instructions: string | null;
+  }[];
+};
+
+export async function getPrescription(prescriptionId: string): Promise<PrescriptionDetail> {
+  return apiJson<PrescriptionDetail>(`/api/v1/prescriptions/${prescriptionId}`);
+}
+
 export async function downloadInvoicePdf(invoiceId: string, invoiceNumber: string): Promise<void> {
   await ensureCsrf();
   const response = await fetchWithTimeout(`${apiUrl()}/api/v1/invoices/${invoiceId}/pdf`, {

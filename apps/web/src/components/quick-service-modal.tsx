@@ -1,115 +1,93 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Zap, X, Check, CheckCircle2, AlertCircle, Plus, Trash2 } from "lucide-react";
-import { listPatients, listClients, issueInvoice, type PatientRow, type ClientRow } from "@/lib/api";
+import { listPatients, listClients, listServices, appendToBasket, type PatientRow, type ClientRow } from "@/lib/api";
+import { formatMoney } from "@/lib/utils";
 
-type QuickServiceItem = {
-  id: string;
-  name: string;
-  price: number;
-  selected: boolean;
-};
-
-const DEFAULT_QUICK_SERVICES: QuickServiceItem[] = [
-  { id: "ear_clean", name: "Ear Cleaning & Irrigation", price: 25.0, selected: false },
-  { id: "nail_cut", name: "Nail Cutting & Trimming", price: 15.0, selected: false },
-  { id: "deworm", name: "Deworming Administration", price: 30.0, selected: false },
-  { id: "hygiene_bath", name: "Hygienic Medicated Bath", price: 40.0, selected: false },
-  { id: "dental_polish", name: "Dental Hygiene Polish", price: 20.0, selected: false },
-];
+type CustomItem = { id: string; name: string; price: number };
 
 export function QuickServiceModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [selectedPatientId, setSelectedPatientId] = useState<string>("");
-  const [services, setServices] = useState<QuickServiceItem[]>(DEFAULT_QUICK_SERVICES);
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
+  const [customItems, setCustomItems] = useState<CustomItem[]>([]);
   const [customName, setCustomName] = useState("");
   const [customPrice, setCustomPrice] = useState("");
-  const [successInvoiceNumber, setSuccessInvoiceNumber] = useState<string | null>(null);
+  const [sentTotal, setSentTotal] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const patientsQuery = useQuery<PatientRow[]>({
-    queryKey: ["patients"],
-    queryFn: () => listPatients(),
-    enabled: isOpen,
-  });
+  const patientsQuery = useQuery<PatientRow[]>({ queryKey: ["patients"], queryFn: () => listPatients(), enabled: isOpen });
+  const clientsQuery = useQuery<ClientRow[]>({ queryKey: ["clients"], queryFn: listClients, enabled: isOpen });
+  const servicesQuery = useQuery({ queryKey: ["services"], queryFn: listServices, enabled: isOpen });
 
-  const clientsQuery = useQuery<ClientRow[]>({
-    queryKey: ["clients"],
-    queryFn: listClients,
-    enabled: isOpen,
-  });
+  const catalog = useMemo(
+    () => (servicesQuery.data ?? []).filter((s) => !s.status || s.status.toUpperCase() === "ACTIVE"),
+    [servicesQuery.data]
+  );
 
   const selectedPatient = patientsQuery.data?.find((p) => p.id === selectedPatientId);
-  const matchingClient = selectedPatient
-    ? clientsQuery.data?.find((c) => c.id === selectedPatient.clientId)
-    : null;
+  const matchingClient = selectedPatient ? clientsQuery.data?.find((c) => c.id === selectedPatient.clientId) : null;
+
+  const chosenCatalog = catalog.filter((s) => selectedServiceIds.includes(s.id));
+  const totalAmount =
+    chosenCatalog.reduce((sum, s) => sum + (Number(s.defaultPrice) || 0), 0) +
+    customItems.reduce((sum, item) => sum + item.price, 0);
+  const itemCount = chosenCatalog.length + customItems.length;
 
   const toggleService = (id: string) => {
-    setServices((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, selected: !s.selected } : s))
-    );
+    setSelectedServiceIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
   const addCustomService = () => {
-    if (!customName.trim() || !customPrice || isNaN(Number(customPrice))) return;
-    const newItem: QuickServiceItem = {
-      id: "custom_" + Date.now(),
-      name: customName.trim(),
-      price: Math.max(0, Number(customPrice)),
-      selected: true,
-    };
-    setServices((prev) => [...prev, newItem]);
+    const price = Number(customPrice);
+    if (!customName.trim() || !(price > 0)) return;
+    setCustomItems((prev) => [...prev, { id: `custom_${Date.now()}`, name: customName.trim(), price }]);
     setCustomName("");
     setCustomPrice("");
   };
 
-  const removeService = (id: string) => {
-    setServices((prev) => prev.filter((s) => s.id !== id));
-  };
-
-  const selectedServices = services.filter((s) => s.selected);
-  const totalAmount = selectedServices.reduce((sum, s) => sum + s.price, 0);
-
-  const invoiceMutation = useMutation({
+  const sendMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedPatientId) {
-        throw new Error("Please select a patient.");
-      }
-      if (selectedServices.length === 0) {
-        throw new Error("Please select at least one quick service.");
-      }
-
-      const lines = selectedServices.map((s) => ({
-        description: s.name,
-        quantity: 1,
-        unitPrice: s.price,
-        sourceType: "SERVICE",
-      }));
-
-      return await issueInvoice({
-        patientId: selectedPatientId,
-        clientId: selectedPatient?.clientId,
-        lines,
-      });
+      if (!selectedPatientId) throw new Error("Please select a patient.");
+      if (itemCount === 0) throw new Error("Please select at least one service.");
+      const lines = [
+        ...chosenCatalog.map((s) => ({
+          id: `svc-${s.id}-${Date.now()}`,
+          sourceType: "SERVICE",
+          description: s.name,
+          quantity: 1,
+          unitPrice: Number(s.defaultPrice) || 0,
+          taxRate: 0,
+          priceMissing: !(Number(s.defaultPrice) > 0),
+        })),
+        ...customItems.map((item) => ({
+          id: item.id,
+          sourceType: "CUSTOM",
+          description: item.name,
+          quantity: 1,
+          unitPrice: item.price,
+          taxRate: 0,
+        })),
+      ];
+      await appendToBasket(selectedPatientId, selectedPatient?.clientId, lines);
+      return totalAmount;
     },
-    onSuccess: (data) => {
-      setSuccessInvoiceNumber(data.invoiceNumber || "INV-NEW");
-      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
-      queryClient.invalidateQueries({ queryKey: ["financial-overview"] });
+    onSuccess: (total) => {
+      setSentTotal(total);
+      queryClient.invalidateQueries({ queryKey: ["open-baskets"] });
     },
-    onError: (err: Error) => {
-      setErrorMessage(err.message || "Failed to issue quick service invoice.");
-    },
+    onError: (err: Error) => setErrorMessage(err.message || "Could not send services to billing."),
   });
 
   if (!isOpen) return null;
 
   const resetAndClose = () => {
     setSelectedPatientId("");
-    setServices(DEFAULT_QUICK_SERVICES);
-    setSuccessInvoiceNumber(null);
+    setSelectedServiceIds([]);
+    setCustomItems([]);
+    setSentTotal(null);
     setErrorMessage(null);
     onClose();
   };
@@ -131,24 +109,22 @@ export function QuickServiceModal({ isOpen, onClose }: { isOpen: boolean; onClos
           </div>
           <div>
             <h2 className="text-lg font-bold text-slate-900">Quick Service (Walk-in)</h2>
-            <p className="text-xs text-slate-500">
-              No formal consultation required — charges added straight to billing.
-            </p>
+            <p className="text-xs text-slate-500">Services from your catalog are sent to the patient&apos;s billing basket.</p>
           </div>
         </div>
 
-        {successInvoiceNumber ? (
+        {sentTotal !== null ? (
           <div className="my-6 text-center space-y-4">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
               <CheckCircle2 className="h-8 w-8" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Invoice Created Successfully!</h3>
+              <h3 className="text-base font-bold text-slate-900">Sent to billing</h3>
               <p className="text-sm text-slate-600 mt-1">
-                Invoice <span className="font-mono font-bold text-teal-700">{successInvoiceNumber}</span> has been added to billing basket.
+                Reception will find {selectedPatient?.name || "this patient"} under &quot;Waiting to bill&quot; in Clinic POS.
               </p>
               <p className="text-xs text-slate-400 mt-0.5">
-                Total Billed: <span className="font-semibold text-slate-800">${totalAmount.toFixed(2)}</span>
+                Total: <span className="font-semibold text-slate-800">{formatMoney(sentTotal)}</span>
               </p>
             </div>
             <div className="flex justify-center gap-3 pt-3">
@@ -169,11 +145,8 @@ export function QuickServiceModal({ isOpen, onClose }: { isOpen: boolean; onClos
               </div>
             )}
 
-            {/* Select Patient */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Select Patient / Pet *
-              </label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Select Patient / Pet *</label>
               <select
                 value={selectedPatientId}
                 onChange={(e) => {
@@ -199,55 +172,67 @@ export function QuickServiceModal({ isOpen, onClose }: { isOpen: boolean; onClos
               )}
             </div>
 
-            {/* Service Selection */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-2">
-                Select Walk-in Services
-              </label>
-              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                {services.map((item) => (
-                  <div
-                    key={item.id}
-                    onClick={() => toggleService(item.id)}
-                    className={`flex items-center justify-between p-2.5 rounded-xl border text-sm cursor-pointer transition ${
-                      item.selected
-                        ? "border-teal-600 bg-teal-50/50 text-teal-950 font-medium"
-                        : "border-slate-200 bg-slate-50/50 text-slate-700 hover:border-slate-300"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
+              <label className="block text-xs font-semibold text-slate-700 mb-2">Services from your catalog</label>
+              {servicesQuery.isLoading ? (
+                <p className="text-xs text-slate-400">Loading services…</p>
+              ) : catalog.length === 0 ? (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                  No services in your catalog yet. Add them under Settings → Services, or add a custom item below.
+                </p>
+              ) : (
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {catalog.map((item) => {
+                    const selected = selectedServiceIds.includes(item.id);
+                    return (
                       <div
-                        className={`flex h-4 w-4 items-center justify-center rounded border ${
-                          item.selected
-                            ? "border-teal-600 bg-teal-600 text-white"
-                            : "border-slate-300 bg-white"
+                        key={item.id}
+                        onClick={() => toggleService(item.id)}
+                        className={`flex items-center justify-between p-2.5 rounded-xl border text-sm cursor-pointer transition ${
+                          selected
+                            ? "border-teal-600 bg-teal-50/50 text-teal-950 font-medium"
+                            : "border-slate-200 bg-slate-50/50 text-slate-700 hover:border-slate-300"
                         }`}
                       >
-                        {item.selected && <Check className="h-3 w-3 stroke-[3]" />}
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`flex h-4 w-4 items-center justify-center rounded border ${
+                              selected ? "border-teal-600 bg-teal-600 text-white" : "border-slate-300 bg-white"
+                            }`}
+                          >
+                            {selected && <Check className="h-3 w-3 stroke-[3]" />}
+                          </div>
+                          <span>{item.name}</span>
+                        </div>
+                        <span className="font-semibold text-slate-900">{formatMoney(item.defaultPrice)}</span>
                       </div>
-                      <span>{item.name}</span>
-                    </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {customItems.length > 0 && (
+              <div className="space-y-1.5">
+                {customItems.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs">
+                    <span className="font-medium text-slate-800">{item.name}</span>
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-slate-900">${item.price.toFixed(2)}</span>
-                      {item.id.startsWith("custom_") && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeService(item.id);
-                          }}
-                          className="text-slate-400 hover:text-rose-600 ml-1"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
+                      <span className="font-semibold">{formatMoney(item.price)}</span>
+                      <button
+                        type="button"
+                        onClick={() => setCustomItems((prev) => prev.filter((x) => x.id !== item.id))}
+                        className="text-slate-400 hover:text-rose-600"
+                        aria-label={`Remove ${item.name}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
+            )}
 
-            {/* Custom service addition */}
             <div className="flex gap-2 pt-1">
               <input
                 type="text"
@@ -259,7 +244,7 @@ export function QuickServiceModal({ isOpen, onClose }: { isOpen: boolean; onClos
               <input
                 type="number"
                 step="0.01"
-                placeholder="Price $"
+                placeholder="Price ₹"
                 value={customPrice}
                 onChange={(e) => setCustomPrice(e.target.value)}
                 className="w-24 rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:border-teal-600 focus:outline-hidden"
@@ -273,11 +258,10 @@ export function QuickServiceModal({ isOpen, onClose }: { isOpen: boolean; onClos
               </button>
             </div>
 
-            {/* Footer Summary & Action */}
             <div className="flex items-center justify-between border-t border-slate-100 pt-4">
               <div>
-                <p className="text-xs text-slate-500">Total Billed</p>
-                <p className="text-xl font-extrabold text-slate-900">${totalAmount.toFixed(2)}</p>
+                <p className="text-xs text-slate-500">Total</p>
+                <p className="text-xl font-extrabold text-slate-900">{formatMoney(totalAmount)}</p>
               </div>
               <div className="flex gap-2">
                 <button
@@ -289,11 +273,11 @@ export function QuickServiceModal({ isOpen, onClose }: { isOpen: boolean; onClos
                 </button>
                 <button
                   type="button"
-                  disabled={invoiceMutation.isPending || selectedServices.length === 0 || !selectedPatientId}
-                  onClick={() => invoiceMutation.mutate()}
+                  disabled={sendMutation.isPending || itemCount === 0 || !selectedPatientId}
+                  onClick={() => sendMutation.mutate()}
                   className="rounded-lg bg-teal-700 px-5 py-2 text-xs font-semibold text-white hover:bg-teal-800 disabled:opacity-50 shadow-sm"
                 >
-                  {invoiceMutation.isPending ? "Issuing Bill…" : "Charge to Billing →"}
+                  {sendMutation.isPending ? "Sending…" : "Send to Billing →"}
                 </button>
               </div>
             </div>

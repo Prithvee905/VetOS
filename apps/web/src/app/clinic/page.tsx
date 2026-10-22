@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   apiJson,
@@ -31,6 +31,13 @@ import {
   getWhatsAppIntegrationStatus,
   listVaccinations,
   recordVaccination,
+  listOpenBaskets,
+  getBasket,
+  saveBasket,
+  clearBasket,
+  appendToBasket,
+  getInvoice,
+  type InvoiceDetail,
   type SessionUser,
   type ClinicProfile,
   type AppointmentItem,
@@ -69,6 +76,7 @@ import {
 } from "@/lib/clinical-constants";
 import { phoneDigitsForInput, resolveInvoiceWhatsAppPhone } from "@/lib/whatsapp-phone";
 import { formatMoney } from "@/lib/utils";
+import { findConsultationService, findProductForMedicine, findServiceByKeyword } from "@/lib/pricing";
 
 type ActiveTab = "queue" | "appointments" | "soap" | "pos" | "register";
 
@@ -80,6 +88,8 @@ type DifferentialItem = {
 
 type RxLine = {
   medicineName: string;
+  /** Inventory product the doctor picked; absent when the medicine is not stocked. */
+  productId?: string;
   quantity: number;
   dosage: string;
   frequency: string;
@@ -96,7 +106,20 @@ type BasketLine = {
   quantity: number;
   unitPrice: number;
   taxRate: number;
+  /** No catalog or inventory price was found; reception must enter one before invoicing. */
+  priceMissing?: boolean;
 };
+
+function invoiceDetailToRow(inv: InvoiceDetail): InvoiceRow {
+  return {
+    id: inv.id,
+    invoiceNumber: inv.invoiceNumber,
+    total: String(inv.total),
+    amountPaid: String(inv.amountPaid),
+    status: inv.status,
+    lines: inv.lines.map((line) => ({ id: line.id, description: line.description, lineTotal: String(line.lineTotal) })),
+  };
+}
 
 type CompletedPaymentReceipt = {
   invoiceId: string;
@@ -313,19 +336,20 @@ export default function ClinicOperationsStation() {
   const [activeQueueEntryId, setActiveQueueEntryId] = useState<string | null>(null);
 
   // S - Subjective
-  const [subjective, setSubjective] = useState("Owner reports pet is lethargic with mild reduced appetite.");
-  const [historyNotes, setHistoryNotes] = useState("Vaccinated 6 months ago. No prior chronic conditions.");
+  // The form starts empty: anything pre-filled here would be saved into a real medical record.
+  const [subjective, setSubjective] = useState("");
+  const [historyNotes, setHistoryNotes] = useState("");
 
   // O - Objective (Structured Vitals & Clinical Exam)
-  const [vitalsTemp, setVitalsTemp] = useState("101.8");
+  const [vitalsTemp, setVitalsTemp] = useState("");
   const [vitalsTempUnit, setVitalsTempUnit] = useState<"°F" | "°C">("°F");
-  const [vitalsHeartRate, setVitalsHeartRate] = useState("110");
-  const [vitalsRespRate, setVitalsRespRate] = useState("24");
-  const [vitalsWeight, setVitalsWeight] = useState("14.5");
-  const [vitalsMucousMembrane, setVitalsMucousMembrane] = useState("Pink (Normal)");
-  const [vitalsCrt, setVitalsCrt] = useState("< 2s (Normal)");
-  const [vitalsHydration, setVitalsHydration] = useState("Normal (< 5%)");
-  const [vitalsExamNotes, setVitalsExamNotes] = useState("Abdomen soft on palpation. Normal thoracic auscultation.");
+  const [vitalsHeartRate, setVitalsHeartRate] = useState("");
+  const [vitalsRespRate, setVitalsRespRate] = useState("");
+  const [vitalsWeight, setVitalsWeight] = useState("");
+  const [vitalsMucousMembrane, setVitalsMucousMembrane] = useState("");
+  const [vitalsCrt, setVitalsCrt] = useState("");
+  const [vitalsHydration, setVitalsHydration] = useState("");
+  const [vitalsExamNotes, setVitalsExamNotes] = useState("");
 
   const compiledVitalsExam = useMemo(() => {
     const parts: string[] = [];
@@ -333,87 +357,79 @@ export default function ClinicOperationsStation() {
     if (vitalsHeartRate) parts.push(`HR: ${vitalsHeartRate} bpm`);
     if (vitalsRespRate) parts.push(`RR: ${vitalsRespRate} bpm`);
     if (vitalsWeight) parts.push(`Weight: ${vitalsWeight} kg`);
-    if (vitalsMucousMembrane) parts.push(`Mucous membranes: ${vitalsMucousMembrane}, CRT ${vitalsCrt}`);
+    if (vitalsMucousMembrane) parts.push(`Mucous membranes: ${vitalsMucousMembrane}`);
+    if (vitalsCrt) parts.push(`CRT: ${vitalsCrt}`);
     if (vitalsHydration) parts.push(`Hydration: ${vitalsHydration}`);
     if (vitalsExamNotes.trim()) parts.push(`Clinical findings: ${vitalsExamNotes.trim()}`);
     return parts.join(" | ");
   }, [vitalsTemp, vitalsTempUnit, vitalsHeartRate, vitalsRespRate, vitalsWeight, vitalsMucousMembrane, vitalsCrt, vitalsHydration, vitalsExamNotes]);
 
   // A - Assessment
-  const [primaryDiagnosis, setPrimaryDiagnosis] = useState("Acute Gastritis / Dietary Indiscretion");
+  const [primaryDiagnosis, setPrimaryDiagnosis] = useState("");
   const [selectedDiagCategory, setSelectedDiagCategory] = useState<string>("Common & Frequent");
   const [showDiagBrowser, setShowDiagBrowser] = useState(false);
-  const [differentials, setDifferentials] = useState<DifferentialItem[]>([
-    { label: "Gastroenteritis", rank: 1, notes: "Mild abdominal sensitivity" },
-    { label: "Foreign Body Ingestion", rank: 2, notes: "Low probability based on palpation" },
-  ]);
+  const [differentials, setDifferentials] = useState<DifferentialItem[]>([]);
   const [newDiffLabel, setNewDiffLabel] = useState("");
 
   // P - Plan
-  const [treatmentPlan, setTreatmentPlan] = useState("Supportive gastroprotectants, hydration, bland diet (boiled chicken/rice) for 3-5 days.");
-  const [doctorNotes, setDoctorNotes] = useState("Advise owner to monitor vomiting or worsening lethargy.");
-  const [followUpDate, setFollowUpDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 5);
-    return d.toISOString().split("T")[0];
-  });
+  const [treatmentPlan, setTreatmentPlan] = useState("");
+  const [doctorNotes, setDoctorNotes] = useState("");
+  // Empty unless the doctor schedules one; a default date would trigger unwanted follow-up reminders.
+  const [followUpDate, setFollowUpDate] = useState("");
 
   // Prescriptions state
-  const [rxLines, setRxLines] = useState<RxLine[]>([
-    {
-      medicineName: "Amoxicillin & Clavulanate (Clavamox)",
-      quantity: 10,
-      dosage: "250mg",
-      frequency: "BID (Twice daily)",
-      duration: "5 days",
-      route: "Oral",
-      instructions: "Give with food",
-    },
-    {
-      medicineName: "Pantoprazole Tablets (Pan-40)",
-      quantity: 5,
-      dosage: "40mg",
-      frequency: "SID (Once daily)",
-      duration: "5 days",
-      route: "Oral",
-      instructions: "Give on empty stomach 30 min before food",
-    },
-  ]);
+  const [rxLines, setRxLines] = useState<RxLine[]>([]);
+
+  // A different patient must never inherit the previous patient's notes, vitals or prescriptions.
+  useEffect(() => {
+    resetSoapForm();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePatientId]);
+
+  function resetSoapForm() {
+    setSubjective("");
+    setHistoryNotes("");
+    setVitalsTemp("");
+    setVitalsHeartRate("");
+    setVitalsRespRate("");
+    setVitalsWeight("");
+    setVitalsMucousMembrane("");
+    setVitalsCrt("");
+    setVitalsHydration("");
+    setVitalsExamNotes("");
+    setPrimaryDiagnosis("");
+    setDifferentials([]);
+    setNewDiffLabel("");
+    setTreatmentPlan("");
+    setDoctorNotes("");
+    setFollowUpDate("");
+    setRxLines([]);
+  }
 
   function handleMedicineSelect(index: number, medName: string) {
-    const trimmed = medName.trim().toLowerCase();
-    const match = STANDARD_VETERINARY_MEDICINES.find(
-      (m) =>
-        m.name.toLowerCase() === trimmed ||
-        trimmed.includes(m.name.toLowerCase().split(" ")[0]) ||
-        m.name.toLowerCase().includes(trimmed)
+    // Exact matches only: partial matching used to overwrite what the doctor was typing.
+    const product = findProductForMedicine(products.data, medName);
+    const reference = STANDARD_VETERINARY_MEDICINES.find((m) => m.name.toLowerCase() === medName.trim().toLowerCase());
+    setRxLines((prev) =>
+      prev.map((item, i) => {
+        if (i !== index) return item;
+        const next: RxLine = { ...item, medicineName: medName, productId: product?.id };
+        if (!reference) return next;
+        return {
+          ...next,
+          quantity: reference.defaultQty,
+          dosage: reference.defaultDosage,
+          frequency: reference.defaultFrequency,
+          duration: reference.defaultDuration,
+          route: reference.defaultRoute,
+          instructions: reference.defaultInstructions,
+        };
+      })
     );
-    if (match) {
-      setRxLines((prev) =>
-        prev.map((item, i) =>
-          i === index
-            ? {
-                ...item,
-                medicineName: match.name,
-                quantity: match.defaultQty,
-                dosage: match.defaultDosage,
-                frequency: match.defaultFrequency,
-                duration: match.defaultDuration,
-                route: match.defaultRoute,
-                instructions: match.defaultInstructions,
-              }
-            : item
-        )
-      );
-    } else {
-      setRxLines((prev) =>
-        prev.map((item, i) => (i === index ? { ...item, medicineName: medName } : item))
-      );
-    }
   }
 
   function applyClinicalPack(pack: (typeof PRESCRIPTION_CLINICAL_PACKS)[0]) {
-    setRxLines(pack.lines);
+    setRxLines(pack.lines.map((line) => ({ ...line, productId: findProductForMedicine(products.data, line.medicineName)?.id })));
     notifySuccess(`Applied ${pack.name} with standard dosing!`);
   }
 
@@ -432,31 +448,30 @@ export default function ClinicOperationsStation() {
     d.setFullYear(d.getFullYear() + 1);
     return d.toISOString().split("T")[0];
   });
-  const [vaxBatch, setVaxBatch] = useState("VAC-2026-01");
-  const [vaxNotes, setVaxNotes] = useState("Administered SQ right hind limb. Normal post-vaccination observation.");
+  const [vaxBatch, setVaxBatch] = useState("");
+  const [vaxNotes, setVaxNotes] = useState("");
   const [vaxAddToBasket, setVaxAddToBasket] = useState(true);
-  const [vaxFee, setVaxFee] = useState("450");
+  const [vaxFee, setVaxFee] = useState("");
 
   function handleSelectVaxType(name: string) {
     setVaxName(name);
     const d = new Date();
     if (name.toLowerCase().includes("deworm")) {
       d.setMonth(d.getMonth() + 3);
-      setVaxFee("150");
       setVaxNotes("Broad spectrum anthelmintic administered orally.");
     } else if (name.toLowerCase().includes("dhpp") || name.toLowerCase().includes("tricat") || name.toLowerCase().includes("9-in-1")) {
       d.setFullYear(d.getFullYear() + 1);
-      setVaxFee("650");
-      setVaxNotes("Administered SQ scruff/hind limb. Health check normal.");
+      setVaxNotes("Administered SQ scruff/hind limb.");
     } else if (name.toLowerCase().includes("cough") || name.toLowerCase().includes("bordetella") || name.toLowerCase().includes("kc")) {
       d.setFullYear(d.getFullYear() + 1);
-      setVaxFee("500");
-      setVaxNotes("Administered intranasal / oral. No respiratory abnormalities.");
+      setVaxNotes("Administered intranasal / oral.");
     } else {
       d.setFullYear(d.getFullYear() + 1);
-      setVaxFee("450");
-      setVaxNotes("Administered SQ right hind limb. Normal post-vaccine observation.");
+      setVaxNotes("Administered SQ.");
     }
+    // Fee comes from the clinic's service catalog; staff enter it when no matching service exists.
+    const service = findServiceByKeyword(services.data, name);
+    setVaxFee(service ? String(service.defaultPrice) : "");
     setVaxNextDue(d.toISOString().split("T")[0]);
   }
 
@@ -465,13 +480,11 @@ export default function ClinicOperationsStation() {
   // ----------------------------------------------------
   const [basketClientId, setBasketClientId] = useState("");
   const [basketPatientId, setBasketPatientId] = useState("");
-  const [basketLines, setBasketLines] = useState<BasketLine[]>([
-    { id: "1", sourceType: "SERVICE", description: "Standard Clinical Consultation", quantity: 1, unitPrice: 500, taxRate: 0 },
-  ]);
+  const [basketLines, setBasketLines] = useState<BasketLine[]>([]);
   const [selectedServiceId, setSelectedServiceId] = useState("");
   const [selectedProductId, setSelectedProductId] = useState("");
   const [customItemDesc, setCustomItemDesc] = useState("");
-  const [customItemPrice, setCustomItemPrice] = useState("250");
+  const [customItemPrice, setCustomItemPrice] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("UPI");
   const [issuedInvoice, setIssuedInvoice] = useState<InvoiceRow | null>(null);
   const [discountPercent, setDiscountPercent] = useState<number>(0);
@@ -496,22 +509,86 @@ export default function ClinicOperationsStation() {
     }
   }, [isOwner, maxStaffDiscountCap, discountPercent]);
 
+  // ----------------------------------------------------
+  // Server-side basket: one open basket per patient, shared by every computer in the clinic.
+  // ----------------------------------------------------
+  const openBaskets = useQuery({
+    queryKey: ["open-baskets"],
+    queryFn: listOpenBaskets,
+    enabled: canHandlePOS,
+    refetchInterval: 15_000,
+  });
+  /** Patient whose server basket is currently loaded; saving is blocked until the load finishes. */
+  const loadedBasketPatientRef = useRef<string | null>(null);
+  const pendingBasketSaveRef = useRef<(() => void) | null>(null);
+  const basketLinesRef = useRef<BasketLine[]>([]);
+  basketLinesRef.current = basketLines;
+
   useEffect(() => {
-    try {
-      const savedRx = localStorage.getItem("vetos_active_rx");
-      if (savedRx) setLastPrescription(JSON.parse(savedRx));
-      const savedBasket = localStorage.getItem("vetos_active_basket");
-      if (savedBasket) setBasketLines(JSON.parse(savedBasket));
-      const savedInv = localStorage.getItem("vetos_active_invoice");
-      if (savedInv) setIssuedInvoice(JSON.parse(savedInv));
-      const savedPatientId = localStorage.getItem("vetos_active_basket_patient_id");
-      if (savedPatientId) setBasketPatientId(savedPatientId);
-      const savedClientId = localStorage.getItem("vetos_active_basket_client_id");
-      if (savedClientId) setBasketClientId(savedClientId);
-    } catch {
-      // ignore parse errors
+    // Flush an unsaved edit for the previous patient before switching.
+    pendingBasketSaveRef.current?.();
+    const patientId = basketPatientId;
+    if (!patientId) {
+      loadedBasketPatientRef.current = null;
+      return;
     }
-  }, []);
+    if (loadedBasketPatientRef.current === patientId) return;
+    let cancelled = false;
+    const hadUnsavedLines = loadedBasketPatientRef.current === null && basketLinesRef.current.length > 0;
+    (async () => {
+      try {
+        const basket = await getBasket<BasketLine>(patientId);
+        if (cancelled) return;
+        // Lines added before a patient was chosen are kept and saved to this patient's basket.
+        if (!(hadUnsavedLines && basket.lines.length === 0)) {
+          setBasketLines(basket.lines ?? []);
+        }
+        if (basket.clientId) setBasketClientId(basket.clientId);
+        if (basket.invoiceId) {
+          const inv = await getInvoice(basket.invoiceId);
+          if (cancelled) return;
+          setIssuedInvoice(inv.status === "PAID" ? null : invoiceDetailToRow(inv));
+        } else {
+          setIssuedInvoice(null);
+        }
+        loadedBasketPatientRef.current = patientId;
+      } catch (err) {
+        if (!cancelled) notifyError(err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [basketPatientId]);
+
+  useEffect(() => {
+    const patientId = basketPatientId;
+    if (!patientId || loadedBasketPatientRef.current !== patientId) return;
+    const lines = basketLines;
+    const clientId = basketClientId || null;
+    const invoiceId = issuedInvoice?.id ?? null;
+    const run = () => {
+      pendingBasketSaveRef.current = null;
+      saveBasket<BasketLine>(patientId, { clientId, lines, invoiceId })
+        .then(() => queryClient.invalidateQueries({ queryKey: ["open-baskets"] }))
+        .catch(notifyError);
+    };
+    pendingBasketSaveRef.current = run;
+    const timer = setTimeout(run, 500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [basketPatientId, basketClientId, basketLines, issuedInvoice?.id]);
+
+  /** Adds lines to a patient's server basket (e.g. from the doctor's consultation) and shows them if open here. */
+  async function addLinesToPatientBasket(patientId: string, lines: BasketLine[]) {
+    const clientId = (patients.data ?? []).find((p) => p.id === patientId)?.clientId ?? null;
+    const saved = await appendToBasket<BasketLine>(patientId, clientId, lines);
+    if (loadedBasketPatientRef.current === patientId) {
+      setBasketLines(saved.lines);
+    }
+    await queryClient.invalidateQueries({ queryKey: ["open-baskets"] });
+  }
 
   // Auto-resolve patient & client for the unified POS basket
   const resolvedBasketPatient = useMemo(() => {
@@ -567,19 +644,7 @@ export default function ClinicOperationsStation() {
   function handleAssignBasketPatient(patientId: string) {
     setBasketPatientId(patientId);
     const p = (patients.data ?? []).find((pat) => pat.id === patientId);
-    if (p) {
-      setBasketClientId(p.clientId);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("vetos_active_basket_patient_id", p.id);
-        localStorage.setItem("vetos_active_basket_client_id", p.clientId);
-      }
-    } else {
-      setBasketClientId("");
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("vetos_active_basket_patient_id");
-        localStorage.removeItem("vetos_active_basket_client_id");
-      }
-    }
+    setBasketClientId(p ? p.clientId : "");
   }
 
   // ----------------------------------------------------
@@ -743,50 +808,50 @@ export default function ClinicOperationsStation() {
         setLastPrescription(rxRes);
       }
 
-      // 3. If there was an active queue entry, mark it completed
+      // 3. Send the consultation and medicines to the patient's billing basket on the server,
+      //    priced from the service catalog and inventory (never invented).
+      const consultation = findConsultationService(services.data);
+      const basketLinesToAdd: BasketLine[] = [
+        {
+          id: `consult-${consultRes.id}`,
+          sourceType: "SERVICE",
+          description: primaryDiagnosis.trim() ? `Consultation (${primaryDiagnosis.trim()})` : "Consultation",
+          quantity: 1,
+          unitPrice: consultation ? Number(consultation.defaultPrice) || 0 : 0,
+          taxRate: 0,
+          priceMissing: !consultation || !(Number(consultation.defaultPrice) > 0),
+        },
+      ];
+      (rxRes?.items ?? []).forEach((item, idx) => {
+        const product = findProductForMedicine(products.data, item.medicineName, rxLines[idx]?.productId);
+        const price = product ? Number(product.salePrice) || 0 : 0;
+        basketLinesToAdd.push({
+          id: item.id || `rx-${consultRes.id}-${idx}`,
+          sourceType: "PRESCRIPTION",
+          description: `Rx: ${item.medicineName}${item.dosage || item.duration ? ` (${[item.dosage, item.duration].filter(Boolean).join(", ")})` : ""}`,
+          quantity: Number(item.quantity) || 1,
+          unitPrice: price,
+          taxRate: 0,
+          priceMissing: price <= 0,
+        });
+      });
+      await addLinesToPatientBasket(activePatientId, basketLinesToAdd);
+
+      // 4. If there was an active queue entry, mark it completed
       if (activeQueueEntryId) {
         await updateQueueStatus(activeQueueEntryId, "COMPLETED");
         await queryClient.invalidateQueries({ queryKey: ["queue"] });
       }
 
-      return { consultId: consultRes.id, rx: rxRes };
+      return { consultId: consultRes.id, rx: rxRes, missingPrices: basketLinesToAdd.filter((l) => l.priceMissing).length };
     },
     onSuccess: (data) => {
-      notifySuccess("SOAP Consultation finalized and Prescriptions generated successfully!");
-      // Automatically prepopulate the billing basket with the consultation and prescribed meds
-      const newLines: BasketLine[] = [
-        {
-          id: `consult-${data.consultId}`,
-          sourceType: "SERVICE",
-          description: `Consultation (${primaryDiagnosis})`,
-          quantity: 1,
-          unitPrice: 500,
-          taxRate: 0,
-        },
-      ];
-      if (data.rx?.items) {
-        data.rx.items.forEach((item, idx) => {
-          newLines.push({
-            id: item.id || `rx-${idx}`,
-            sourceType: "PRESCRIPTION",
-            description: `Rx: ${item.medicineName} (${item.dosage}, ${item.duration})`,
-            quantity: Number(item.quantity) || 1,
-            unitPrice: 150,
-            taxRate: 0,
-          });
-        });
-      }
-      setBasketLines(newLines);
-      if (activePatientId) {
-        setBasketPatientId(activePatientId);
-      }
-      if (typeof window !== "undefined") {
-        if (data.rx) localStorage.setItem("vetos_active_rx", JSON.stringify(data.rx));
-        localStorage.setItem("vetos_active_basket", JSON.stringify(newLines));
-        if (activePatientId) {
-          localStorage.setItem("vetos_active_basket_patient_id", activePatientId);
-        }
-      }
+      notifySuccess(
+        data.missingPrices > 0
+          ? `Consultation saved and sent to billing. ${data.missingPrices} item(s) have no price in the catalog/inventory — reception will set them.`
+          : "Consultation saved and sent to billing with catalog prices."
+      );
+      resetSoapForm();
     },
     onError: notifyError,
   });
@@ -961,21 +1026,19 @@ export default function ClinicOperationsStation() {
       });
 
       if (vaxAddToBasket) {
-        const fee = parseFloat(vaxFee) || 450;
-        setBasketLines((prev) => [
-          ...prev,
+        const fee = parseFloat(vaxFee);
+        const priced = Number.isFinite(fee) && fee > 0;
+        await addLinesToPatientBasket(activePatientId, [
           {
             id: `vax-${Date.now()}`,
             sourceType: "SERVICE",
-            description: `Vaccination: ${vaxName.trim()} ${vaxBatch.trim() ? `(Batch: ${vaxBatch.trim()})` : ""}`,
+            description: `Vaccination: ${vaxName.trim()} ${vaxBatch.trim() ? `(Batch: ${vaxBatch.trim()})` : ""}`.trim(),
             quantity: 1,
-            unitPrice: fee,
+            unitPrice: priced ? fee : 0,
             taxRate: 0,
+            priceMissing: !priced,
           },
         ]);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("vetos_active_basket_patient_id", activePatientId);
-        }
       }
 
       return res;
@@ -985,7 +1048,13 @@ export default function ClinicOperationsStation() {
       queryClient.invalidateQueries({ queryKey: ["patients"] });
       setShowVaxModal(false);
       notifySuccess(
-        `💉 ${res.vaccineName} recorded for ${activePatient?.name || "patient"}! Added to immunization card${vaxAddToBasket ? " & POS billing basket (₹" + vaxFee + ")" : ""}.`
+        `💉 ${res.vaccineName} recorded for ${activePatient?.name || "patient"}! Added to immunization card${
+          vaxAddToBasket
+            ? Number(vaxFee) > 0
+              ? ` & billing basket (${formatMoney(vaxFee)})`
+              : " & billing basket (price to be set at reception)"
+            : ""
+        }.`
       );
     },
     onError: notifyError,
@@ -1107,7 +1176,16 @@ export default function ClinicOperationsStation() {
       },
     ]);
     setCustomItemDesc("");
-    setCustomItemPrice("250");
+    setCustomItemPrice("");
+  }
+
+  function setBasketLinePrice(index: number, value: string) {
+    const price = Number(value);
+    setBasketLines((prev) =>
+      prev.map((line, i) =>
+        i === index ? { ...line, unitPrice: Number.isFinite(price) && price >= 0 ? price : 0 } : line
+      )
+    );
   }
 
   function removeBasketLine(index: number) {
@@ -1118,6 +1196,14 @@ export default function ClinicOperationsStation() {
     mutationFn: async () => {
       if (basketLines.length === 0) {
         throw new Error("Cannot issue invoice for an empty basket.");
+      }
+
+      const unpriced = basketLines.filter((line) => !(line.unitPrice > 0));
+      if (unpriced.length > 0) {
+        throw new Error(
+          `Set a price before invoicing: ${unpriced.map((line) => line.description).join(", ")}. ` +
+            "Add missing services to the catalog and medicines to inventory so they are priced automatically next time."
+        );
       }
 
       if (!isOwner && maxStaffDiscountCap === 0 && discountPercent > 0) {
@@ -1172,10 +1258,7 @@ export default function ClinicOperationsStation() {
     },
     onSuccess: (inv) => {
       setIssuedInvoice(inv);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("vetos_active_invoice", JSON.stringify(inv));
-      }
-      notifySuccess(`Invoice #${inv.invoiceNumber} created. Total due: ₹${inv.total}`);
+      notifySuccess(`Invoice #${inv.invoiceNumber} created. Total due: ${formatMoney(inv.total)}`);
     },
     onError: notifyError,
   });
@@ -1277,16 +1360,18 @@ export default function ClinicOperationsStation() {
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["prescriptions"] });
       queryClient.invalidateQueries({ queryKey: ["inventory-movements"] });
+      const paidPatientId = basketPatientId;
+      // Stop the pending autosave from re-creating the basket we are about to clear.
+      pendingBasketSaveRef.current = null;
+      loadedBasketPatientRef.current = null;
       setIssuedInvoice(null);
       setBasketLines([]);
       setBasketPatientId("");
       setBasketClientId("");
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("vetos_active_rx");
-        localStorage.removeItem("vetos_active_basket");
-        localStorage.removeItem("vetos_active_invoice");
-        localStorage.removeItem("vetos_active_basket_patient_id");
-        localStorage.removeItem("vetos_active_basket_client_id");
+      if (paidPatientId) {
+        clearBasket(paidPatientId)
+          .then(() => queryClient.invalidateQueries({ queryKey: ["open-baskets"] }))
+          .catch(notifyError);
       }
     },
     onError: notifyError,
@@ -2615,6 +2700,7 @@ export default function ClinicOperationsStation() {
                     onChange={(e) => setVitalsMucousMembrane(e.target.value)}
                     className="mt-1 w-full rounded border border-slate-300 bg-white p-2 text-xs font-medium text-slate-800 focus:border-teal-600 focus:outline-none"
                   >
+                    <option value="">— Not assessed —</option>
                     <option value="Pink (Normal)">Pink (Normal)</option>
                     <option value="Pale">Pale / Anemic</option>
                     <option value="Congested / Injected">Congested / Injected</option>
@@ -2631,6 +2717,7 @@ export default function ClinicOperationsStation() {
                     onChange={(e) => setVitalsCrt(e.target.value)}
                     className="mt-1 w-full rounded border border-slate-300 bg-white p-2 text-xs font-medium text-slate-800 focus:border-teal-600 focus:outline-none"
                   >
+                    <option value="">— Not assessed —</option>
                     <option value="< 2s (Normal)">&lt; 2 seconds (Normal)</option>
                     <option value="2-3s (Borderline)">2 - 3 seconds (Borderline)</option>
                     <option value="> 3s (Prolonged)">&gt; 3 seconds (Prolonged)</option>
@@ -2644,6 +2731,7 @@ export default function ClinicOperationsStation() {
                     onChange={(e) => setVitalsHydration(e.target.value)}
                     className="mt-1 w-full rounded border border-slate-300 bg-white p-2 text-xs font-medium text-slate-800 focus:border-teal-600 focus:outline-none"
                   >
+                    <option value="">— Not assessed —</option>
                     <option value="Normal (< 5%)">Normal (&lt; 5% loss)</option>
                     <option value="Mild (5-7%)">Mild Dehydration (5-7%)</option>
                     <option value="Moderate (8-10%)">Moderate Dehydration (8-10%)</option>
@@ -2897,26 +2985,39 @@ export default function ClinicOperationsStation() {
             </div>
 
             <datalist id="veterinary-medications-catalog-list">
-              {STANDARD_VETERINARY_MEDICINES.map((m) => (
-                <option key={m.name} value={m.name}>
-                  {m.brand} • {m.category} • {m.defaultDosage} {m.defaultFrequency}
-                </option>
-              ))}
+              {(products.data ?? [])
+                .filter((p) => !p.status || p.status.toUpperCase() === "ACTIVE")
+                .map((p) => (
+                  <option key={p.id} value={p.name}>
+                    {formatMoney(p.salePrice)} per {p.unit || "unit"} • In inventory
+                  </option>
+                ))}
             </datalist>
 
             <div className="mt-4 space-y-3">
               {rxLines.map((line, index) => (
                 <div key={index} className="grid grid-cols-1 md:grid-cols-7 gap-2 rounded-lg bg-slate-50 p-3 border border-slate-200 text-xs">
                   <div className="md:col-span-2">
-                    <label className="font-semibold text-slate-600">Medicine Name (Auto-fills Rx)</label>
+                    <label className="font-semibold text-slate-600">Medicine (from inventory)</label>
                     <input
                       type="text"
                       list="veterinary-medications-catalog-list"
                       className="mt-1 w-full rounded border border-slate-300 p-1.5 font-medium text-slate-900 bg-white"
                       value={line.medicineName}
                       onChange={(e) => handleMedicineSelect(index, e.target.value)}
-                      placeholder="e.g. Clavamox, Melonex, Pan-40…"
+                      placeholder="Search your inventory…"
                     />
+                    {line.medicineName.trim() && (
+                      line.productId ? (
+                        <p className="mt-1 text-[10px] font-semibold text-emerald-700">
+                          ✓ In inventory • {formatMoney(findProductForMedicine(products.data, line.medicineName, line.productId)?.salePrice)}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-[10px] font-semibold text-amber-700">
+                          ⚠ Not in inventory — reception will set the price
+                        </p>
+                      )
+                    )}
                   </div>
                   <div>
                     <label className="font-semibold text-slate-600">Qty</label>
@@ -3267,6 +3368,32 @@ export default function ClinicOperationsStation() {
                   </div>
                 )}
 
+                {(openBaskets.data ?? []).length > 0 && (
+                  <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50/70 p-3">
+                    <p className="text-xs font-bold text-amber-900">
+                      Waiting to bill ({openBaskets.data?.length}) — sent from consultations on any computer
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {(openBaskets.data ?? []).map((b) => (
+                        <button
+                          key={b.patientId}
+                          type="button"
+                          onClick={() => handleAssignBasketPatient(b.patientId)}
+                          className={`rounded-md border px-2.5 py-1 text-xs font-semibold transition ${
+                            b.patientId === basketPatientId
+                              ? "border-teal-600 bg-teal-600 text-white"
+                              : "border-amber-300 bg-white text-slate-800 hover:border-teal-500"
+                          }`}
+                        >
+                          {b.patientName}
+                          {b.clientName ? ` • ${b.clientName}` : ""} • {b.lineCount} item{b.lineCount === 1 ? "" : "s"}
+                          {b.invoiceId ? " • invoice issued" : ""}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap items-center justify-between border-b border-slate-100 pb-3 gap-2">
                   <div>
                     <h3 className="text-base font-bold text-slate-900">Current Cart Items</h3>
@@ -3344,11 +3471,28 @@ export default function ClinicOperationsStation() {
                             </span>
                           </div>
                           <div className="flex items-center gap-4">
-                            <span className="text-sm text-slate-500">
-                              {line.quantity} × ₹{line.unitPrice}
-                            </span>
-                            <span className="text-sm font-bold text-slate-900 w-20 text-right">
-                              ₹{line.quantity * line.unitPrice}
+                            {line.priceMissing || !(line.unitPrice > 0) ? (
+                              <label className="flex items-center gap-1 text-xs text-amber-800">
+                                <span className="font-semibold">⚠ Set price</span>
+                                <span>{line.quantity} ×</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  aria-label={`Unit price for ${line.description}`}
+                                  className="w-24 rounded border border-amber-400 bg-amber-50 px-2 py-1 text-sm text-slate-900"
+                                  value={line.unitPrice > 0 ? line.unitPrice : ""}
+                                  placeholder="₹ per unit"
+                                  onChange={(e) => setBasketLinePrice(index, e.target.value)}
+                                />
+                              </label>
+                            ) : (
+                              <span className="text-sm text-slate-500">
+                                {line.quantity} × {formatMoney(line.unitPrice)}
+                              </span>
+                            )}
+                            <span className="text-sm font-bold text-slate-900 w-24 text-right">
+                              {formatMoney(line.quantity * line.unitPrice)}
                             </span>
                             <button
                               type="button"
