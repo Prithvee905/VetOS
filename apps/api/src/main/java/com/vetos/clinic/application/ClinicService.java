@@ -24,7 +24,7 @@ public class ClinicService {
 		this.auditRecorder = auditRecorder;
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, noRollbackFor = ApiException.class)
 	public ClinicResponse profile(UUID clinicId) {
 		return toResponse(requireClinic(clinicId));
 	}

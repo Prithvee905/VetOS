@@ -40,7 +40,7 @@ public class NotificationService {
 		}
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, noRollbackFor = ApiException.class)
 	public NotificationPage listForUser(UUID clinicId, UUID userId, int page, int size) {
 		int offset = page * size;
 		Long total = jdbcTemplate.queryForObject("""

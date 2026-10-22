@@ -45,7 +45,7 @@ public class UserAdminService {
 		this.auditRecorder = auditRecorder;
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, noRollbackFor = ApiException.class)
 	public UserPage list(int page, int size) {
 		int safePage = Math.max(page, 0);
 		int safeSize = Math.min(Math.max(size, 1), 100);

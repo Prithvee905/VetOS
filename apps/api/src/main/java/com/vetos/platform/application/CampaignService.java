@@ -129,7 +129,7 @@ public class CampaignService {
 		return getCampaign(clinicId, campaignId);
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, noRollbackFor = com.vetos.platform.api.ApiException.class)
 	public List<CampaignDto> listCampaigns(UUID clinicId) {
 		return jdbcTemplate.query("""
 				select id, name, cohort, channel, status, targeted_count, sent_count, skipped_opt_out, created_at, completed_at

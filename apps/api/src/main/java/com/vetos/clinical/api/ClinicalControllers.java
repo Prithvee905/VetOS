@@ -195,6 +195,14 @@ public class ClinicalControllers {
 		return clinicalWorkflowService.listPrescriptions(authentication.clinicId(), status);
 	}
 
+	@GetMapping("/prescriptions/{prescriptionId}")
+	public ClinicalWorkflowService.PrescriptionResponse getPrescription(
+			@AuthenticationPrincipal VetosAuthentication authentication,
+			@PathVariable UUID prescriptionId) {
+		authorizationSupport.requirePermission(authentication, "PATIENT_WRITE");
+		return clinicalWorkflowService.getPrescription(authentication.clinicId(), prescriptionId);
+	}
+
 	@PostMapping("/prescriptions")
 	@ResponseStatus(HttpStatus.CREATED)
 	public ClinicalWorkflowService.PrescriptionResponse createPrescription(

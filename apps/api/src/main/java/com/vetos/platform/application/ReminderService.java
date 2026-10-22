@@ -157,7 +157,7 @@ public class ReminderService {
 		return new ReminderRunSummary(apptCount, vaxCount, dewormCount, followupCount);
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, noRollbackFor = ApiException.class)
 	public CohortsDto getCohorts(UUID clinicId) {
 		return new CohortsDto(
 				queryFollowupsDue(clinicId, 7),
