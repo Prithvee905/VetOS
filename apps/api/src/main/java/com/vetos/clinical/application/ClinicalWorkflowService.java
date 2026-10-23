@@ -26,16 +26,19 @@ public class ClinicalWorkflowService {
 	private final ClinicRepository clinicRepository;
 	private final AuditRecorder auditRecorder;
 	private final NotificationService notificationService;
+	private final com.vetos.platform.application.VaccineScheduleService vaccineScheduleService;
 
 	public ClinicalWorkflowService(
 			JdbcTemplate jdbcTemplate,
 			ClinicRepository clinicRepository,
 			AuditRecorder auditRecorder,
-			NotificationService notificationService) {
+			NotificationService notificationService,
+			com.vetos.platform.application.VaccineScheduleService vaccineScheduleService) {
 		this.jdbcTemplate = jdbcTemplate;
 		this.clinicRepository = clinicRepository;
 		this.auditRecorder = auditRecorder;
 		this.notificationService = notificationService;
+		this.vaccineScheduleService = vaccineScheduleService;
 	}
 
 	public ClientResponse createClient(UUID clinicId, UUID actorId, ClientCreateRequest request, String requestId) {
@@ -155,6 +158,7 @@ public class ClinicalWorkflowService {
 				actorId,
 				actorId);
 		auditRecorder.record(clinicId, actorId, "CREATE", "patient", id, requestId);
+		vaccineScheduleService.generateForNewPatient(clinicId, id);
 		return getPatient(clinicId, id);
 	}
 

@@ -1315,6 +1315,68 @@ export async function recordVaccination(body: {
 }
 
 // ----------------------------------------------------
+// Vaccine protocols (defined by each clinic) and per-pet schedules
+// ----------------------------------------------------
+export type VaccineProtocol = {
+  id: string;
+  /** CANINE, FELINE, ... or ANY */
+  speciesCode: string;
+  vaccineName: string;
+  aliases: string | null;
+  firstDoseAgeWeeks: number | null;
+  primaryDoses: number;
+  primaryIntervalWeeks: number;
+  boosterIntervalMonths: number | null;
+  sortOrder: number;
+  status: string;
+};
+
+export type VaccineProtocolInput = {
+  speciesCode: string;
+  vaccineName: string;
+  aliases?: string;
+  firstDoseAgeWeeks?: number | null;
+  primaryDoses?: number;
+  primaryIntervalWeeks?: number;
+  boosterIntervalMonths?: number | null;
+  sortOrder?: number;
+};
+
+export type VaccineScheduleEntry = {
+  id: string;
+  protocolId: string;
+  vaccineName: string;
+  doseLabel: string;
+  dueOn: string;
+  status: "DUE" | "DONE" | "SKIPPED";
+  completedDoseId: string | null;
+};
+
+export async function listVaccineProtocols(): Promise<VaccineProtocol[]> {
+  return apiJson<VaccineProtocol[]>("/api/v1/vaccine-protocols");
+}
+
+export async function createVaccineProtocol(body: VaccineProtocolInput): Promise<VaccineProtocol> {
+  return apiJson<VaccineProtocol>("/api/v1/vaccine-protocols", { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function updateVaccineProtocol(id: string, body: VaccineProtocolInput): Promise<VaccineProtocol> {
+  return apiJson<VaccineProtocol>(`/api/v1/vaccine-protocols/${id}`, { method: "PUT", body: JSON.stringify(body) });
+}
+
+export async function updateVaccineProtocolStatus(id: string, status: "ACTIVE" | "INACTIVE"): Promise<VaccineProtocol> {
+  return apiJson<VaccineProtocol>(`/api/v1/vaccine-protocols/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
+}
+
+export async function getVaccineSchedule(patientId: string): Promise<VaccineScheduleEntry[]> {
+  return apiJson<VaccineScheduleEntry[]>(`/api/v1/patients/${patientId}/vaccine-schedule`);
+}
+
+export async function skipVaccineScheduleEntry(entryId: string): Promise<void> {
+  await apiJson<void>(`/api/v1/vaccine-schedule/${entryId}/skip`, { method: "POST" });
+}
+
+// ----------------------------------------------------
 // File Storage & Diagnostic Attachments
 // ----------------------------------------------------
 export type FileResponse = {

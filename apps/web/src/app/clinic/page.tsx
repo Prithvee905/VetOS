@@ -30,6 +30,10 @@ import {
   sendEmail,
   getWhatsAppIntegrationStatus,
   listVaccinations,
+  listVaccineProtocols,
+  getVaccineSchedule,
+  type VaccineProtocol,
+  type VaccineScheduleEntry,
   recordVaccination,
   listOpenBaskets,
   getBasket,
@@ -469,13 +473,10 @@ export default function ClinicOperationsStation() {
   // Active Consultation: Immunization & Preventative State
   // ----------------------------------------------------
   const [showVaxModal, setShowVaxModal] = useState(false);
-  const [vaxName, setVaxName] = useState("Rabies (Anti-Rabies / ARV)");
+  const [vaxName, setVaxName] = useState("");
   const [vaxAdminDate, setVaxAdminDate] = useState(() => new Date().toISOString().split("T")[0]);
-  const [vaxNextDue, setVaxNextDue] = useState(() => {
-    const d = new Date();
-    d.setFullYear(d.getFullYear() + 1);
-    return d.toISOString().split("T")[0];
-  });
+  // Blank means "follow the clinic's vaccine protocol"; the server works out the next due date.
+  const [vaxNextDue, setVaxNextDue] = useState("");
   const [vaxBatch, setVaxBatch] = useState("");
   const [vaxNotes, setVaxNotes] = useState("");
   const [vaxAddToBasket, setVaxAddToBasket] = useState(true);
@@ -483,24 +484,11 @@ export default function ClinicOperationsStation() {
 
   function handleSelectVaxType(name: string) {
     setVaxName(name);
-    const d = new Date();
-    if (name.toLowerCase().includes("deworm")) {
-      d.setMonth(d.getMonth() + 3);
-      setVaxNotes("Broad spectrum anthelmintic administered orally.");
-    } else if (name.toLowerCase().includes("dhpp") || name.toLowerCase().includes("tricat") || name.toLowerCase().includes("9-in-1")) {
-      d.setFullYear(d.getFullYear() + 1);
-      setVaxNotes("Administered SQ scruff/hind limb.");
-    } else if (name.toLowerCase().includes("cough") || name.toLowerCase().includes("bordetella") || name.toLowerCase().includes("kc")) {
-      d.setFullYear(d.getFullYear() + 1);
-      setVaxNotes("Administered intranasal / oral.");
-    } else {
-      d.setFullYear(d.getFullYear() + 1);
-      setVaxNotes("Administered SQ.");
-    }
+    setVaxNotes("");
+    setVaxNextDue("");
     // Fee comes from the clinic's service catalog; staff enter it when no matching service exists.
-    const service = findServiceByKeyword(services.data, name);
+    const service = name ? findServiceByKeyword(services.data, name) : undefined;
     setVaxFee(service ? String(service.defaultPrice) : "");
-    setVaxNextDue(d.toISOString().split("T")[0]);
   }
 
   // ----------------------------------------------------
@@ -900,144 +888,81 @@ export default function ClinicOperationsStation() {
 
   const isFeline = activePatient?.speciesCode?.toUpperCase() === "FELINE";
 
+  // The clinic's own vaccine protocols for this species (Settings → Vaccine Protocols); nothing is built in.
+  const vaccineProtocols = useQuery<VaccineProtocol[]>({
+    queryKey: ["vaccine-protocols"],
+    queryFn: listVaccineProtocols,
+    staleTime: 60_000,
+  });
+  const patientSchedule = useQuery<VaccineScheduleEntry[]>({
+    queryKey: ["vaccine-schedule", activePatientId],
+    queryFn: () => getVaccineSchedule(activePatientId),
+    enabled: Boolean(activePatientId),
+  });
+
   const coreVaccineList = useMemo(() => {
-    if (isFeline) {
-      return [
-        {
-          key: "RABIES",
-          name: "Rabies (Anti-Rabies / ARV)",
-          defaultAdminName: "Rabies (Anti-Rabies / ARV)",
-          aliases: ["rabies", "arv", "defensor", "nobivac r"],
-        },
-        {
-          key: "TRICAT",
-          name: "Tricat Trio / FVRCP",
-          defaultAdminName: "Tricat Trio (FVRCP)",
-          aliases: ["tricat", "fvrcp", "felocell", "panleukopenia"],
-        },
-        {
-          key: "FELV",
-          name: "FeLV (Feline Leukemia)",
-          defaultAdminName: "FeLV (Feline Leukemia)",
-          aliases: ["felv", "leukemia"],
-        },
-        {
-          key: "DEWORM",
-          name: "Deworming / Parasite",
-          defaultAdminName: "Deworming (Feline)",
-          aliases: ["deworm", "worm", "drontal", "fenbendazole"],
-        },
-      ];
-    }
-    return [
-      {
-        key: "RABIES",
-        name: "Rabies (Anti-Rabies / ARV)",
-        defaultAdminName: "Rabies (Anti-Rabies / ARV)",
-        aliases: ["rabies", "arv", "defensor", "nobivac r"],
-      },
-      {
-        key: "DHPPIL",
-        name: "DHPPiL (9-in-1 / 7-in-1)",
-        defaultAdminName: "DHPPiL (9-in-1 Core)",
-        aliases: ["dhppil", "dhpp", "dhp", "mega-vac", "canigen", "vanguard", "9-in-1", "7-in-1", "parvo"],
-      },
-      {
-        key: "KC",
-        name: "Kennel Cough (KC / Bb)",
-        defaultAdminName: "Kennel Cough (KC / Bordetella)",
-        aliases: ["kennel", "cough", "bordetella", "kc", "bronchicine"],
-      },
-      {
-        key: "DEWORM",
-        name: "Deworming / Parasite",
-        defaultAdminName: "Deworming (Broad Spectrum)",
-        aliases: ["deworm", "worm", "drontal", "fenbendazole", "praziquantel"],
-      },
-    ];
-  }, [isFeline]);
+    const species = activePatient?.speciesCode?.toUpperCase() ?? "";
+    return (vaccineProtocols.data ?? [])
+      .filter((p) => p.status === "ACTIVE" && (p.speciesCode === "ANY" || p.speciesCode === species))
+      .map((p) => ({
+        key: p.id,
+        name: p.vaccineName,
+        defaultAdminName: p.vaccineName,
+        aliases: [p.vaccineName, ...(p.aliases ?? "").split(",")]
+          .map((a) => a.trim().toLowerCase())
+          .filter((a) => a.length >= 2),
+      }));
+  }, [vaccineProtocols.data, activePatient?.speciesCode]);
 
   const coreVaccineStatusList = useMemo(() => {
     const records = patientVaccinations.data ?? [];
+    const schedule = patientSchedule.data ?? [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     return coreVaccineList.map((vaxDef) => {
-      const matchingDoses = records.filter((r) => {
-        const name = (r.vaccineName || "").toLowerCase();
-        return vaxDef.aliases.some((a) => name.includes(a));
-      });
-
-      matchingDoses.sort((a, b) => new Date(b.administeredOn).getTime() - new Date(a.administeredOn).getTime());
+      const matchingDoses = records
+        .filter((r) => {
+          const name = (r.vaccineName || "").toLowerCase();
+          return vaxDef.aliases.some((a) => name.includes(a));
+        })
+        .sort((a, b) => new Date(b.administeredOn).getTime() - new Date(a.administeredOn).getTime());
       const latest = matchingDoses[0];
-
-      if (!latest) {
-        return {
-          key: vaxDef.key,
-          name: vaxDef.name,
-          defaultAdminName: vaxDef.defaultAdminName,
-          status: "NOT_RECORDED" as const,
-          statusBadge: "NOT RECORDED",
-          description: "No vaccination on file",
-          lastDoseDate: null,
-          nextDueDate: null,
-        };
-      }
-
-      if (latest.nextDueOn) {
-        const dueDate = new Date(latest.nextDueOn);
-        dueDate.setHours(0, 0, 0, 0);
-        const diffMs = dueDate.getTime() - today.getTime();
-        const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-
-        if (diffDays < 0) {
-          return {
-            key: vaxDef.key,
-            name: vaxDef.name,
-            defaultAdminName: latest.vaccineName,
-            status: "OVERDUE" as const,
-            statusBadge: "OVERDUE",
-            description: `Booster overdue by ${Math.abs(diffDays)}d (${latest.nextDueOn})`,
-            lastDoseDate: latest.administeredOn,
-            nextDueDate: latest.nextDueOn,
-          };
-        } else if (diffDays <= 30) {
-          return {
-            key: vaxDef.key,
-            name: vaxDef.name,
-            defaultAdminName: latest.vaccineName,
-            status: "DUE_SOON" as const,
-            statusBadge: `DUE IN ${diffDays}D`,
-            description: `Booster due ${latest.nextDueOn}`,
-            lastDoseDate: latest.administeredOn,
-            nextDueDate: latest.nextDueOn,
-          };
-        } else {
-          return {
-            key: vaxDef.key,
-            name: vaxDef.name,
-            defaultAdminName: latest.vaccineName,
-            status: "UP_TO_DATE" as const,
-            statusBadge: "UP TO DATE",
-            description: `Current • Next booster ${latest.nextDueOn}`,
-            lastDoseDate: latest.administeredOn,
-            nextDueDate: latest.nextDueOn,
-          };
-        }
-      }
-
-      return {
+      // The pet's schedule (from the protocol) decides what is due next; the card's own date is the fallback.
+      const nextEntry = schedule.find((s) => s.protocolId === vaxDef.key && s.status === "DUE");
+      const nextDueOn = nextEntry?.dueOn ?? latest?.nextDueOn ?? null;
+      const doseLabel = nextEntry ? `${nextEntry.doseLabel} ` : "";
+      const base = {
         key: vaxDef.key,
         name: vaxDef.name,
-        defaultAdminName: latest.vaccineName,
-        status: "UP_TO_DATE" as const,
-        statusBadge: "RECORDED",
-        description: `Given on ${latest.administeredOn}`,
-        lastDoseDate: latest.administeredOn,
-        nextDueDate: null,
+        defaultAdminName: latest?.vaccineName ?? vaxDef.defaultAdminName,
+        lastDoseDate: latest?.administeredOn ?? null,
+        nextDueDate: nextDueOn,
+      };
+
+      if (!nextDueOn) {
+        return latest
+          ? { ...base, status: "UP_TO_DATE" as const, statusBadge: "RECORDED", description: `Given on ${latest.administeredOn}` }
+          : { ...base, status: "NOT_RECORDED" as const, statusBadge: "NOT RECORDED", description: "No vaccination on file" };
+      }
+
+      const dueDate = new Date(nextDueOn);
+      dueDate.setHours(0, 0, 0, 0);
+      const diffDays = Math.round((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      if (diffDays < 0) {
+        return { ...base, status: "OVERDUE" as const, statusBadge: "OVERDUE", description: `${doseLabel}overdue by ${Math.abs(diffDays)}d (${nextDueOn})` };
+      }
+      if (diffDays <= 30) {
+        return { ...base, status: "DUE_SOON" as const, statusBadge: `DUE IN ${diffDays}D`, description: `${doseLabel}due ${nextDueOn}` };
+      }
+      return {
+        ...base,
+        status: latest ? ("UP_TO_DATE" as const) : ("DUE_SOON" as const),
+        statusBadge: latest ? "UP TO DATE" : "SCHEDULED",
+        description: latest ? `Current • Next ${doseLabel || "booster "}${nextDueOn}` : `${doseLabel}due ${nextDueOn}`,
       };
     });
-  }, [coreVaccineList, patientVaccinations.data]);
+  }, [coreVaccineList, patientVaccinations.data, patientSchedule.data]);
 
   const recordVaccineMutation = useMutation({
     mutationFn: async () => {
@@ -1073,6 +998,7 @@ export default function ClinicOperationsStation() {
     },
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["patient-vaccinations", activePatientId] });
+      queryClient.invalidateQueries({ queryKey: ["vaccine-schedule", activePatientId] });
       queryClient.invalidateQueries({ queryKey: ["patients"] });
       setShowVaxModal(false);
       notifySuccess(
@@ -2483,7 +2409,7 @@ export default function ClinicOperationsStation() {
                     size="sm"
                     className="bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs"
                     onClick={() => {
-                      handleSelectVaxType(isFeline ? "Tricat Trio (FVRCP)" : "Rabies (Anti-Rabies / ARV)");
+                      handleSelectVaxType(coreVaccineList[0]?.defaultAdminName ?? "");
                       setShowVaxModal(true);
                     }}
                   >
@@ -2494,6 +2420,17 @@ export default function ClinicOperationsStation() {
               </div>
 
               {/* Vaccine Status Badges Grid */}
+              {vaccineProtocols.isSuccess && coreVaccineList.length === 0 && (
+                <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-600">
+                  No vaccine protocols set up for this species yet.{" "}
+                  {isOwner ? (
+                    <a href="/settings/vaccines" className="font-semibold text-teal-700 underline">Set up vaccine protocols</a>
+                  ) : (
+                    "Ask the clinic owner to add them in Settings → Vaccine Protocols."
+                  )}{" "}
+                  You can still record any vaccine below.
+                </p>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
                 {coreVaccineStatusList.map((vax) => {
                   return (
@@ -4310,10 +4247,7 @@ export default function ClinicOperationsStation() {
               <div>
                 <label className="font-bold text-slate-700">Select or Enter Vaccine *</label>
                 <div className="mt-1 flex flex-wrap gap-1.5 mb-2">
-                  {(isFeline
-                    ? ["Rabies (Anti-Rabies / ARV)", "Tricat Trio (FVRCP)", "FeLV (Feline Leukemia)", "Deworming (Feline)"]
-                    : ["Rabies (Anti-Rabies / ARV)", "DHPPiL (9-in-1 Core)", "Kennel Cough (KC / Bordetella)", "Deworming (Broad Spectrum)"]
-                  ).map((preset) => (
+                  {coreVaccineList.map((v) => v.defaultAdminName).map((preset) => (
                     <button
                       key={preset}
                       type="button"
@@ -4355,6 +4289,7 @@ export default function ClinicOperationsStation() {
                     onChange={(e) => setVaxNextDue(e.target.value)}
                     className="mt-1 w-full rounded-md border border-slate-300 p-2 text-xs font-semibold"
                   />
+                  <span className="text-[10px] text-slate-500">Leave blank to follow the clinic&apos;s vaccine protocol.</span>
                 </div>
               </div>
 

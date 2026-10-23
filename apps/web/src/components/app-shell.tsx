@@ -31,6 +31,7 @@ const links: NavLink[] = [
 const settingsSubLinks = [
   { href: "/settings/clinic", label: "Clinic Profile" },
   { href: "/settings/services", label: "Services Catalog" },
+  { href: "/settings/vaccines", label: "Vaccine Protocols" },
   { href: "/settings/exports", label: "Data Exports" },
   { href: "/settings/audit", label: "Audit Trail" },
   { href: "/settings/production", label: "Production Gates" },

@@ -27,6 +27,7 @@ import {
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { RecordSoapModal } from "@/components/record-soap-modal";
+import { VaccineSchedulePanel } from "@/components/vaccine-schedule-panel";
 import { Paperclip, Printer, FileText, Search, User } from "lucide-react";
 import { FileAttachmentsModal } from "@/components/file-attachments-modal";
 import { PrintableDocumentModal, type PrescriptionPrintData, type InvoicePrintData } from "@/components/printable-document-modal";
@@ -314,6 +315,7 @@ export default function PatientsPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["patient-timeline", selectedPatientId] });
+      queryClient.invalidateQueries({ queryKey: ["vaccine-schedule", selectedPatientId] });
       setShowActionModal(null);
       setVaxName("");
       setVaxBatch("");
@@ -613,6 +615,8 @@ export default function PatientsPage() {
                   </div>
                 </div>
               </div>
+
+              {selectedPatientId && <VaccineSchedulePanel patientId={selectedPatientId} canEdit={isDoctorOrOwner} />}
 
               {/* Timeline Items */}
               <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">

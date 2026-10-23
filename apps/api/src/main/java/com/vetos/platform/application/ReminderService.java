@@ -109,7 +109,9 @@ public class ReminderService {
 		List<VaxReminderCandidate> vaxes = queryVaccinationsDue(clinicId, 7);
 		for (VaxReminderCandidate v : vaxes) {
 			String dedupeKey = "vax_" + v.id() + "_" + v.nextDueOn();
-			if (!alreadyQueued(clinicId, dedupeKey)) {
+			// A schedule entry planned from an earlier dose may already have been reminded under that dose's key.
+			boolean remindedForDose = v.sourceDoseId() != null && alreadyQueued(clinicId, "vax_" + v.sourceDoseId() + "_" + v.nextDueOn());
+			if (!remindedForDose && !alreadyQueued(clinicId, dedupeKey)) {
 				String msg = "Hello " + v.clientName() + ", vaccination booster (" + v.vaccineName() +
 						") for " + v.patientName() + " is due on " + v.nextDueOn() + ".";
 				communicationService.queueWhatsApp(clinicId, new CommunicationService.WhatsAppRequest(
@@ -209,23 +211,36 @@ public class ReminderService {
 
 	private List<VaxReminderCandidate> queryVaccinationsDue(UUID clinicId, int days) {
 		return jdbcTemplate.query("""
-				select v.id, v.vaccine_name, v.next_due_on::text, p.name as patient_name, c.display_name as client_name,
-				       coalesce(c.phone, '') as phone
-				from vaccination_doses v
-				join patients p on p.id = v.patient_id and p.clinic_id = v.clinic_id
-				join clients c on c.id = p.client_id and c.clinic_id = p.clinic_id
-				where v.clinic_id = ?
-				  and v.next_due_on between current_date and (current_date + cast(? || ' days' as interval))
-				order by v.next_due_on asc
+				select * from (
+				    -- Doses outside any clinic protocol keep using the next due date written on the card.
+				    select v.id, v.vaccine_name, v.next_due_on as due_on, p.name as patient_name, c.display_name as client_name,
+				           coalesce(c.phone, '') as phone, null::uuid as source_dose_id
+				    from vaccination_doses v
+				    join patients p on p.id = v.patient_id and p.clinic_id = v.clinic_id
+				    join clients c on c.id = p.client_id and c.clinic_id = p.clinic_id
+				    where v.clinic_id = ? and v.protocol_id is null
+				      and v.next_due_on between current_date and (current_date + cast(? || ' days' as interval))
+				    union all
+				    -- Protocol vaccines follow the pet's schedule.
+				    select s.id, pr.vaccine_name, s.due_on, p.name, c.display_name, coalesce(c.phone, ''), s.source_dose_id
+				    from vaccination_schedule s
+				    join vaccine_protocols pr on pr.id = s.protocol_id and pr.clinic_id = s.clinic_id and pr.status = 'ACTIVE'
+				    join patients p on p.id = s.patient_id and p.clinic_id = s.clinic_id and p.deleted_at is null
+				    join clients c on c.id = p.client_id and c.clinic_id = p.clinic_id
+				    where s.clinic_id = ? and s.status = 'DUE'
+				      and s.due_on between current_date and (current_date + cast(? || ' days' as interval))
+				) due
+				order by due_on asc
 				""",
 				(rs, rowNum) -> new VaxReminderCandidate(
 						rs.getObject("id", UUID.class),
 						rs.getString("vaccine_name"),
-						rs.getString("next_due_on"),
+						rs.getString("due_on"),
 						rs.getString("patient_name"),
 						rs.getString("client_name"),
-						rs.getString("phone")),
-				clinicId, days);
+						rs.getString("phone"),
+						rs.getObject("source_dose_id", UUID.class)),
+				clinicId, days, clinicId, days);
 	}
 
 	private List<DewormReminderCandidate> queryDewormingsDue(UUID clinicId, int days) {
@@ -340,7 +355,7 @@ public class ReminderService {
 
 	public record ReminderRunSummary(int appointmentsReminded, int vaccinationsReminded, int dewormingsReminded, int followupsReminded) {}
 	public record ApptReminderCandidate(UUID id, String startsAt, String patientName, String clientName, String phone, String email) {}
-	public record VaxReminderCandidate(UUID id, String vaccineName, String nextDueOn, String patientName, String clientName, String phone) {}
+	public record VaxReminderCandidate(UUID id, String vaccineName, String nextDueOn, String patientName, String clientName, String phone, UUID sourceDoseId) {}
 	public record DewormReminderCandidate(UUID id, String productName, String nextDueOn, String patientName, String clientName, String phone) {}
 	public record FollowUpCandidate(UUID consultationId, UUID patientId, String patientName, String clientName, String phone, String email, String doctorName, String followUpOn) {}
 	public record LapsedClientCandidate(UUID clientId, String clientName, String phone, String email, String lastVisit, int visitCount, String patientNames) {}

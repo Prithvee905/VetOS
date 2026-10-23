@@ -20,9 +20,12 @@ public class PlatformExpansionService {
 	private final JdbcTemplate jdbcTemplate;
 	private final AuditRecorder auditRecorder;
 
-	public PlatformExpansionService(JdbcTemplate jdbcTemplate, AuditRecorder auditRecorder) {
+	private final VaccineScheduleService vaccineScheduleService;
+
+	public PlatformExpansionService(JdbcTemplate jdbcTemplate, AuditRecorder auditRecorder, VaccineScheduleService vaccineScheduleService) {
 		this.jdbcTemplate = jdbcTemplate;
 		this.auditRecorder = auditRecorder;
+		this.vaccineScheduleService = vaccineScheduleService;
 	}
 
 	public LeadResponse createLead(UUID clinicId, UUID actorId, LeadCreateRequest request, String requestId) {
@@ -65,6 +68,12 @@ public class PlatformExpansionService {
 				""",
 				id, clinicId, request.patientId(), request.vaccineName(), request.administeredOn(), request.nextDueOn(),
 				request.batchNumber(), request.notes());
+		// Follow the clinic's protocol for the next due date unless the vet set one.
+		LocalDate nextDue = vaccineScheduleService.onDoseRecorded(
+				clinicId, request.patientId(), id, request.vaccineName(), request.administeredOn(), request.nextDueOn());
+		if (nextDue != null && !nextDue.equals(request.nextDueOn())) {
+			jdbcTemplate.update("update vaccination_doses set next_due_on = ? where clinic_id = ? and id = ?", java.sql.Date.valueOf(nextDue), clinicId, id);
+		}
 		auditRecorder.record(clinicId, actorId, "CREATE", "vaccination_dose", id, requestId);
 		return new VaccinationResponse(id, request.patientId(), request.vaccineName());
 	}
