@@ -65,7 +65,7 @@ Update the following values in `.env.production`:
 
 ### Step 3: Run Automated Deployment Script
 ```bash
-chmod +x scripts/deploy.sh scripts/backup-db.sh
+chmod +x scripts/deploy.sh scripts/backup-postgres.sh scripts/restore-test.sh scripts/install-backup-cron.sh
 ./scripts/deploy.sh
 ```
 
@@ -105,14 +105,11 @@ git pull origin main
 ```
 
 ### Automated Nightly Database Backups:
-Add a cron job to run `scripts/backup-db.sh` every night at 2:00 AM:
+Set `S3_BACKUP_BUCKET` and `BACKUP_ALERT_EMAIL` in `.env.production`, then install the cron jobs once:
 ```bash
-crontab -e
+./scripts/install-backup-cron.sh
 ```
-Add line:
-```cron
-0 2 * * * /home/ubuntu/VetOS/scripts/backup-db.sh >> /home/ubuntu/VetOS/backups/backup.log 2>&1
-```
+This backs up nightly at 02:00 IST to S3 and restores the latest S3 backup into a throwaway database every Sunday to prove it works. Any failure emails `BACKUP_ALERT_EMAIL`. See [docs/backup-and-restore.md](../backup-and-restore.md).
 
 ### Restore Database from Backup:
 ```bash

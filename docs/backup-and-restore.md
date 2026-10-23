@@ -1,5 +1,19 @@
 # ClinicOS / VetOS — Backup & Restore Procedure
 
+## Quick setup (EC2 + S3)
+
+1. **Create the bucket** (S3 console, region ap-south-1): block all public access, enable versioning, default encryption SSE-S3. Add a lifecycle rule on prefix `postgres/`: move to Glacier Instant Retrieval after 30 days, expire after 365 days.
+2. **Give the server access**: IAM role attached to the EC2 instance with `s3:PutObject`, `s3:GetObject` on `arn:aws:s3:::<bucket>/postgres/*` and `s3:ListBucket` on `arn:aws:s3:::<bucket>`. No access keys go on the server.
+3. **Configure** `.env.production`: `S3_BACKUP_BUCKET`, `AWS_REGION`, `BACKUP_ALERT_EMAIL` (and optionally `BACKUP_HEALTHCHECK_URL`).
+4. **Install the jobs**: `./scripts/install-backup-cron.sh`
+5. **Prove it**: `./scripts/backup-postgres.sh && ./scripts/restore-test.sh --from-s3`
+
+The host needs no AWS CLI; the scripts fall back to the official `amazon/aws-cli` image.
+Failures (dump, integrity, upload, size mismatch, restore) email `BACKUP_ALERT_EMAIL`.
+`backups/last-success` and `backups/last-restore-test` record the latest good runs.
+
+---
+
 ---
 
 ## 1. Backup Strategy Overview
