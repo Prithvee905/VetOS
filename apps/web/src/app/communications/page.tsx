@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { WhatsAppInbox } from "@/components/whatsapp-inbox";
 import {
   listOutboxEvents,
   processOutboxNow,
@@ -1031,6 +1032,8 @@ export default function CommunicationsHubPage() {
           </div>
         </div>
       )}
+
+      <WhatsAppInbox />
 
       {/* Outbox Events Monitor */}
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">

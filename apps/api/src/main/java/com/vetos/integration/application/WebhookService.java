@@ -14,14 +14,22 @@ import org.springframework.util.StringUtils;
 @Service
 public class WebhookService {
 
+	private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(WebhookService.class);
+
 	private final JdbcTemplate jdbcTemplate;
 	private final VetosProperties properties;
 	private final ObjectMapper objectMapper;
+	private final InboundWhatsAppService inboundWhatsAppService;
 
-	public WebhookService(JdbcTemplate jdbcTemplate, VetosProperties properties, ObjectMapper objectMapper) {
+	public WebhookService(
+			JdbcTemplate jdbcTemplate,
+			VetosProperties properties,
+			ObjectMapper objectMapper,
+			InboundWhatsAppService inboundWhatsAppService) {
 		this.jdbcTemplate = jdbcTemplate;
 		this.properties = properties;
 		this.objectMapper = objectMapper;
+		this.inboundWhatsAppService = inboundWhatsAppService;
 	}
 
 	public String verifyWhatsApp(String mode, String verifyToken, String challenge) {
@@ -54,6 +62,44 @@ public class WebhookService {
 			return;
 		}
 		applyDeliveryStatuses(root);
+		receiveInboundMessages(root);
+	}
+
+	private void receiveInboundMessages(JsonNode root) {
+		for (JsonNode entry : root.path("entry")) {
+			for (JsonNode change : entry.path("changes")) {
+				for (JsonNode message : change.path("value").path("messages")) {
+					String type = message.path("type").asText("unknown");
+					long epochSeconds = message.path("timestamp").asLong(0);
+					try {
+						inboundWhatsAppService.receive(
+								message.path("from").asText(null),
+								message.path("id").asText(null),
+								type,
+								messageText(message, type),
+								epochSeconds > 0 ? java.time.Instant.ofEpochSecond(epochSeconds) : java.time.Instant.now());
+					}
+					catch (RuntimeException exception) {
+						// The raw event is already stored; one bad message must not fail the whole webhook.
+						log.error("Could not process inbound WhatsApp message {}", message.path("id").asText(""), exception);
+					}
+				}
+			}
+		}
+	}
+
+	/** Text of a message; button and list replies carry the label the client tapped. */
+	private static String messageText(JsonNode message, String type) {
+		return switch (type) {
+			case "text" -> message.path("text").path("body").asText(null);
+			case "button" -> message.path("button").path("text").asText(null);
+			case "interactive" -> {
+				JsonNode interactive = message.path("interactive");
+				String button = interactive.path("button_reply").path("title").asText(null);
+				yield button != null ? button : interactive.path("list_reply").path("title").asText(null);
+			}
+			default -> null;
+		};
 	}
 
 	private void applyDeliveryStatuses(JsonNode root) {

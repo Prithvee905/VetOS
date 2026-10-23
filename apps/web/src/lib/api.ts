@@ -313,6 +313,29 @@ export async function getInvoice(invoiceId: string): Promise<InvoiceDetail> {
 }
 
 // ----------------------------------------------------
+// WhatsApp inbox (messages clients send to the clinic)
+// ----------------------------------------------------
+export type InboxMessage = {
+  id: string;
+  clientId: string | null;
+  clientName: string | null;
+  fromPhone: string;
+  messageType: string;
+  body: string | null;
+  receivedAt: string;
+  readAt: string | null;
+  handledAction: string | null;
+};
+
+export async function listWhatsAppInbox(limit = 100): Promise<InboxMessage[]> {
+  return apiJson<InboxMessage[]>(`/api/v1/communications/whatsapp/inbox?limit=${limit}`);
+}
+
+export async function markInboxMessageRead(messageId: string): Promise<void> {
+  await apiJson<void>(`/api/v1/communications/whatsapp/inbox/${messageId}/read`, { method: "POST" });
+}
+
+// ----------------------------------------------------
 // Server-side billing basket (one open basket per patient)
 // ----------------------------------------------------
 export type ServerBasket<L> = {
