@@ -68,7 +68,7 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.GET, "/api/v1/auth/csrf", "/actuator/health", "/actuator/health/**",
 								"/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/login/two-step", "/api/v1/auth/refresh").permitAll()
-						.requestMatchers("/api/v1/webhooks/**", "/api/v1/platform-admin/**").permitAll()
+						.requestMatchers("/api/v1/webhooks/**", "/api/v1/platform-admin/**", "/api/v1/public/**").permitAll()
 						.anyRequest().authenticated())
 				.exceptionHandling(exceptions -> exceptions
 						.authenticationEntryPoint((request, response, authException) -> write(response, request, 401, "UNAUTHORIZED", "Authentication failed."))

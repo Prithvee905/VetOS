@@ -1603,3 +1603,52 @@ export async function submitOfflineBatch(body: {
 export async function getProductionGates(): Promise<Record<string, unknown>> {
   return apiJson<Record<string, unknown>>("/api/v1/platform/production-gates");
 }
+
+// ----------------------------------------------------
+// Online booking (public page and owner settings)
+// ----------------------------------------------------
+export type PublicBookingClinic = {
+  name: string;
+  address: string | null;
+  phone: string | null;
+  slotMinutes: number;
+  maxDaysAhead: number;
+  /** ISO weekdays, 1 = Monday */
+  days: number[];
+  timezone: string;
+};
+
+export type OnlineBookingSettings = {
+  clinicName: string;
+  enabled: boolean;
+  slug: string | null;
+  openTime: string;
+  closeTime: string;
+  slotMinutes: number;
+  days: number[];
+};
+
+export type BookingConfirmation = { appointmentId: string; startsAt: string; label: string; petName: string; clinicName: string };
+
+export async function getPublicBookingClinic(slug: string): Promise<PublicBookingClinic> {
+  return apiJson<PublicBookingClinic>(`/api/v1/public/booking/${encodeURIComponent(slug)}`);
+}
+
+export async function getPublicBookingSlots(slug: string, date: string): Promise<string[]> {
+  return apiJson<string[]>(`/api/v1/public/booking/${encodeURIComponent(slug)}/slots?date=${date}`);
+}
+
+export async function createPublicBooking(
+  slug: string,
+  body: { ownerName: string; phone: string; petName: string; speciesCode: string; startsAt: string; reason?: string; whatsappConsent: boolean; website?: string }
+): Promise<BookingConfirmation> {
+  return apiJson<BookingConfirmation>(`/api/v1/public/booking/${encodeURIComponent(slug)}`, { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function getOnlineBookingSettings(): Promise<OnlineBookingSettings> {
+  return apiJson<OnlineBookingSettings>("/api/v1/clinic/online-booking");
+}
+
+export async function updateOnlineBookingSettings(body: Partial<Omit<OnlineBookingSettings, "clinicName">>): Promise<OnlineBookingSettings> {
+  return apiJson<OnlineBookingSettings>("/api/v1/clinic/online-booking", { method: "PUT", body: JSON.stringify(body) });
+}
