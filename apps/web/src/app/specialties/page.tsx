@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   listPatients,
@@ -19,6 +19,7 @@ import {
   updateGroomingStatus,
   listServices,
   appendToBasket,
+  currentUser,
   type ServiceItem,
   type PatientRow,
   type LabOrder,
@@ -45,6 +46,14 @@ export default function SpecialtiesPage() {
   const router = useRouter();
 
   const [activeTab, setActiveTab] = useState<"LABS" | "SURGERIES" | "IPD" | "GROOMING">("LABS");
+
+  // Reception books grooming; labs, surgeries and ward admissions need clinical (doctor/owner) access.
+  const session = useQuery({ queryKey: ["session"], queryFn: currentUser });
+  const groomingOnly = session.data ? !session.data.roles.some((r) => ["OWNER", "DOCTOR", "STAFF"].includes(r)) : false;
+  const clinicalDataEnabled = session.isSuccess && !groomingOnly;
+  useEffect(() => {
+    if (groomingOnly) setActiveTab("GROOMING");
+  }, [groomingOnly]);
 
   // Modals
   const [showLabModal, setShowLabModal] = useState(false);
@@ -87,16 +96,19 @@ export default function SpecialtiesPage() {
   const labsQuery = useQuery<LabOrder[]>({
     queryKey: ["specialties-labs"],
     queryFn: () => listLabOrders(),
+    enabled: clinicalDataEnabled,
   });
 
   const surgeriesQuery = useQuery<SurgeryRecord[]>({
     queryKey: ["specialties-surgeries"],
     queryFn: () => listSurgeries(),
+    enabled: clinicalDataEnabled,
   });
 
   const admissionsQuery = useQuery<AdmissionRecord[]>({
     queryKey: ["specialties-admissions"],
     queryFn: () => listAdmissions(),
+    enabled: clinicalDataEnabled,
   });
 
   const groomingQuery = useQuery<GroomingRecord[]>({
@@ -303,6 +315,8 @@ export default function SpecialtiesPage() {
 
       {/* Tabs */}
       <div className="flex gap-2 border-b border-slate-200">
+        {!groomingOnly && (
+        <>
         <button
           type="button"
           onClick={() => setActiveTab("LABS")}
@@ -330,6 +344,8 @@ export default function SpecialtiesPage() {
         >
           Hospitalization / IPD ({admissionsQuery.data?.length ?? 0})
         </button>
+        </>
+        )}
         <button
           type="button"
           onClick={() => setActiveTab("GROOMING")}

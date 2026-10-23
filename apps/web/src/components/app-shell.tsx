@@ -20,7 +20,7 @@ const links: NavLink[] = [
   { href: "/patients", label: "Patients & Records", allowedRoles: ["OWNER", "DOCTOR", "RECEPTIONIST", "STAFF"] },
   { href: "/clinic", label: "Queue & Clinical", allowedRoles: ["OWNER", "DOCTOR", "RECEPTIONIST", "STAFF"] },
   { href: "/inventory", label: "Inventory", allowedRoles: ["OWNER", "DOCTOR", "RECEPTIONIST", "STAFF"] },
-  { href: "/specialties", label: "Specialties", allowedRoles: ["OWNER", "DOCTOR", "STAFF"] },
+  { href: "/specialties", label: "Specialties", allowedRoles: ["OWNER", "DOCTOR", "RECEPTIONIST", "STAFF"] },
   { href: "/communications", label: "Comms & PRM", allowedRoles: ["OWNER", "RECEPTIONIST"] },
   { href: "/leads", label: "Leads CRM", allowedRoles: ["OWNER", "RECEPTIONIST"] },
   { href: "/procurement", label: "Procurement", allowedRoles: ["OWNER"] },
@@ -43,7 +43,7 @@ const ROUTE_RULES: { prefix: string; allowedRoles: string[]; title: string }[] =
   { prefix: "/settings", allowedRoles: ["OWNER"], title: "Clinic Administration & Settings" },
   { prefix: "/leads", allowedRoles: ["OWNER", "RECEPTIONIST"], title: "Client Acquisition CRM" },
   { prefix: "/communications", allowedRoles: ["OWNER", "RECEPTIONIST"], title: "Communications & PRM Hub" },
-  { prefix: "/specialties", allowedRoles: ["OWNER", "DOCTOR", "STAFF"], title: "Specialties & Clinical Procedures" },
+  { prefix: "/specialties", allowedRoles: ["OWNER", "DOCTOR", "RECEPTIONIST", "STAFF"], title: "Specialties & Clinical Procedures" },
   { prefix: "/inventory", allowedRoles: ["OWNER", "DOCTOR", "RECEPTIONIST", "STAFF"], title: "Inventory Management" },
 ];
 
