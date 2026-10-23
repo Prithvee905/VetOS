@@ -7,8 +7,10 @@ import {
   createService,
   listServices,
   updateServiceStatus,
+  updateServiceTax,
   type ServiceItem,
 } from "@/lib/api";
+import { GST_SLABS, GstTaxEditor } from "@/components/gst-tax-editor";
 
 export default function ServicesCatalogPage() {
   const queryClient = useQueryClient();
@@ -16,6 +18,8 @@ export default function ServicesCatalogPage() {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [defaultPrice, setDefaultPrice] = useState("");
+  const [gstRate, setGstRate] = useState("0");
+  const [hsnSac, setHsnSac] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -33,6 +37,8 @@ export default function ServicesCatalogPage() {
         code: code.trim().toUpperCase(),
         name: name.trim(),
         defaultPrice: Number(defaultPrice) || 0,
+        gstRate: Number(gstRate) || 0,
+        hsnSac: hsnSac.trim() || undefined,
       }),
     onSuccess: async (created) => {
       setMessage(`Service added: ${created.name} (${created.code})`);
@@ -40,6 +46,7 @@ export default function ServicesCatalogPage() {
       setCode("");
       setName("");
       setDefaultPrice("");
+      setHsnSac("");
       await queryClient.invalidateQueries({ queryKey: ["services"] });
     },
     onError: (err) => setError(err instanceof Error ? err.message : "Failed to create service"),
@@ -114,6 +121,35 @@ export default function ServicesCatalogPage() {
             />
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-slate-600">GST rate</label>
+              <select
+                className="mt-1 w-full rounded-md border border-slate-300 p-2 text-sm"
+                value={gstRate}
+                onChange={(e) => setGstRate(e.target.value)}
+              >
+                {GST_SLABS.map((slab) => (
+                  <option key={slab} value={slab}>
+                    {slab}%
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-600">SAC code</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={16}
+                className="mt-1 w-full rounded-md border border-slate-300 p-2 text-sm font-mono"
+                value={hsnSac}
+                onChange={(e) => setHsnSac(e.target.value.replace(/[^0-9]/g, ""))}
+              />
+            </div>
+          </div>
+          <p className="-mt-2 text-[11px] text-slate-500">Veterinary treatment is usually GST-exempt (0%); grooming and boarding are usually 18%. Confirm with your accountant.</p>
+
           <Button
             className="mt-2 bg-teal-700 hover:bg-teal-800 text-white font-semibold"
             onClick={() => createServiceMutation.mutate()}
@@ -179,6 +215,7 @@ export default function ServicesCatalogPage() {
                     <th className="px-3 py-2.5">Code</th>
                     <th className="px-3 py-2.5">Name</th>
                     <th className="px-3 py-2.5">Price</th>
+                    <th className="px-3 py-2.5">GST</th>
                     <th className="px-3 py-2.5">Status</th>
                     <th className="px-3 py-2.5 text-right">Actions</th>
                   </tr>
@@ -202,6 +239,17 @@ export default function ServicesCatalogPage() {
                           <td className="px-3 py-3 font-mono font-bold text-xs text-teal-800">{item.code}</td>
                           <td className="px-3 py-3 font-medium text-slate-900">{item.name}</td>
                           <td className="px-3 py-3 font-semibold text-slate-800">₹{Number(item.defaultPrice).toLocaleString("en-IN")}</td>
+                          <td className="px-3 py-3">
+                            <GstTaxEditor
+                              code={item.hsnSac}
+                              rate={item.gstRate}
+                              codeLabel="SAC"
+                              onSave={async (sac, rate) => {
+                                await updateServiceTax(item.id, { hsnSac: sac, gstRate: rate });
+                                await queryClient.invalidateQueries({ queryKey: ["services"] });
+                              }}
+                            />
+                          </td>
                           <td className="px-3 py-3">
                           <span
                             className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${

@@ -70,12 +70,14 @@ public class InvoicePdfService {
 			document.add(new Paragraph("Amounts in " + code, SMALL));
 			document.add(new Paragraph(" "));
 
-			PdfPTable table = new PdfPTable(4);
+			PdfPTable table = new PdfPTable(6);
 			table.setWidthPercentage(100);
-			table.setWidths(new float[] { 4f, 1f, 1.5f, 1.5f });
+			table.setWidths(new float[] { 3.6f, 1.3f, 0.8f, 1.3f, 1.1f, 1.4f });
 			addHeaderCell(table, "Description");
+			addHeaderCell(table, "HSN/SAC");
 			addHeaderCell(table, "Qty");
 			addHeaderCell(table, "Unit (" + code + ")");
+			addHeaderCell(table, "GST");
 			addHeaderCell(table, "Total (" + code + ")");
 			if (invoice.lines() == null || invoice.lines().isEmpty()) {
 				document.add(new Paragraph("No line items recorded on this invoice.", NORMAL));
@@ -83,15 +85,21 @@ public class InvoicePdfService {
 			else {
 				for (InvoiceLineResponse line : invoice.lines()) {
 					table.addCell(cell(line.description()));
+					table.addCell(cell(line.hsnSac() == null ? "" : line.hsnSac()));
 					table.addCell(cell(formatQty(line.quantity())));
 					table.addCell(cell(money(line.unitPrice())));
+					table.addCell(cell(gstPercent(line.taxRate())));
 					table.addCell(cell(money(line.lineTotal())));
 				}
 				document.add(table);
 			}
 			document.add(new Paragraph(" "));
 			document.add(new Paragraph("Subtotal: " + code + " " + money(invoice.subtotal()), NORMAL));
-			document.add(new Paragraph("Tax: " + code + " " + money(invoice.taxTotal()), NORMAL));
+			if (invoice.taxTotal() != null && invoice.taxTotal().signum() > 0) {
+				java.math.BigDecimal[] split = com.vetos.clinical.application.GstMath.splitIntraState(invoice.taxTotal());
+				document.add(new Paragraph("CGST: " + code + " " + money(split[0]) + "   SGST: " + code + " " + money(split[1]), NORMAL));
+			}
+			document.add(new Paragraph("Total GST: " + code + " " + money(invoice.taxTotal()), NORMAL));
 			document.add(new Paragraph("Total: " + code + " " + money(invoice.total()), TITLE));
 			document.add(new Paragraph("Paid: " + code + " " + money(invoice.amountPaid()), NORMAL));
 			document.add(new Paragraph(" "));
@@ -117,6 +125,14 @@ public class InvoicePdfService {
 		catch (Exception exception) {
 			return FontFactory.getFont(face, size);
 		}
+	}
+
+	/** GST as a percentage label; the stored rate is a fraction (0.12). */
+	private static String gstPercent(java.math.BigDecimal rate) {
+		if (rate == null || rate.signum() == 0) {
+			return "0%";
+		}
+		return rate.movePointRight(2).stripTrailingZeros().toPlainString() + "%";
 	}
 
 	private static void addHeaderCell(PdfPTable table, String text) {

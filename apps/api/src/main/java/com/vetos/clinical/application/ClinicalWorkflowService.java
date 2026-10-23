@@ -485,7 +485,7 @@ public class ClinicalWorkflowService {
 				subtotal = subtotal.add(lineSubtotal);
 				taxTotal = taxTotal.add(taxAmount);
 				String description = item.medicineName() + " — " + item.dosage() + ", " + item.frequency() + ", " + item.duration();
-				lines.add(new LineDraft(item.id(), description, item.quantity(), unitPrice, taxRate, taxAmount, lineTotal));
+				lines.add(new LineDraft(item.id(), description, item.quantity(), unitPrice, taxRate, taxAmount, lineTotal, null));
 			}
 			BigDecimal total = subtotal.add(taxTotal);
 			UUID invoiceId = UuidV7.generate();
@@ -510,8 +510,8 @@ public class ClinicalWorkflowService {
 					Timestamp.from(now));
 			for (LineDraft line : lines) {
 				jdbcTemplate.update("""
-						insert into invoice_lines (id, clinic_id, invoice_id, source_type, source_id, description, quantity, unit_price, discount_amount, tax_rate, tax_amount, line_total)
-						values (?, ?, ?, 'PRESCRIPTION_ITEM', ?, ?, ?, ?, 0, ?, ?, ?)
+						insert into invoice_lines (id, clinic_id, invoice_id, source_type, source_id, description, quantity, unit_price, discount_amount, tax_rate, tax_amount, line_total, hsn_sac)
+						values (?, ?, ?, 'PRESCRIPTION_ITEM', ?, ?, ?, ?, 0, ?, ?, ?, ?)
 						""",
 						UuidV7.generate(),
 						clinicId,
@@ -522,7 +522,8 @@ public class ClinicalWorkflowService {
 						line.unitPrice(),
 						line.taxRate(),
 						line.taxAmount(),
-						line.lineTotal());
+						line.lineTotal(),
+						line.hsnSac());
 			}
 			auditRecorder.record(clinicId, actorId, "ISSUE", "invoice", invoiceId, requestId);
 			return getInvoice(clinicId, invoiceId);
@@ -562,16 +563,15 @@ public class ClinicalWorkflowService {
 			BigDecimal disc = line.discountAmount() == null ? BigDecimal.ZERO : line.discountAmount();
 			BigDecimal taxRate = line.taxRate() == null ? clinic.getDefaultTaxRate() : line.taxRate();
 
-			BigDecimal lineSubtotal = unitPrice.multiply(qty).subtract(disc).setScale(2, RoundingMode.HALF_UP);
-			if (lineSubtotal.compareTo(BigDecimal.ZERO) < 0) lineSubtotal = BigDecimal.ZERO;
-			BigDecimal taxAmount = lineSubtotal.multiply(taxRate).setScale(2, RoundingMode.HALF_UP);
-			BigDecimal lineTotal = lineSubtotal.add(taxAmount);
+			// Taxable value, GST and line total; MRP-style prices already contain GST.
+			GstMath.LineTax lineTax = GstMath.compute(unitPrice.multiply(qty).subtract(disc), taxRate, clinic.isPricesIncludeTax());
 
-			subtotal = subtotal.add(lineSubtotal);
-			taxTotal = taxTotal.add(taxAmount);
+			subtotal = subtotal.add(lineTax.taxable());
+			taxTotal = taxTotal.add(lineTax.tax());
 			discountTotal = discountTotal.add(disc);
 
-			lines.add(new LineDraft(line.sourceId(), line.description(), qty, unitPrice, taxRate, taxAmount, lineTotal));
+			lines.add(new LineDraft(line.sourceId(), line.description(), qty, unitPrice, taxRate, lineTax.tax(), lineTax.total(),
+					line.hsnSac() == null || line.hsnSac().isBlank() ? null : line.hsnSac().trim()));
 		}
 
 		BigDecimal total = subtotal.add(taxTotal);
@@ -603,8 +603,8 @@ public class ClinicalWorkflowService {
 			StandaloneInvoiceLineRequest reqLine = request.lines().get(i);
 			String sType = reqLine.sourceType() != null ? reqLine.sourceType() : "CUSTOM";
 			jdbcTemplate.update("""
-					insert into invoice_lines (id, clinic_id, invoice_id, source_type, source_id, description, quantity, unit_price, discount_amount, tax_rate, tax_amount, line_total)
-					values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					insert into invoice_lines (id, clinic_id, invoice_id, source_type, source_id, description, quantity, unit_price, discount_amount, tax_rate, tax_amount, line_total, hsn_sac)
+					values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 					""",
 					UuidV7.generate(),
 					clinicId,
@@ -617,7 +617,8 @@ public class ClinicalWorkflowService {
 					reqLine.discountAmount() == null ? BigDecimal.ZERO : reqLine.discountAmount(),
 					line.taxRate(),
 					line.taxAmount(),
-					line.lineTotal());
+					line.lineTotal(),
+					line.hsnSac());
 		}
 
 		auditRecorder.record(clinicId, actorId, "ISSUE", "invoice", invoiceId, requestId);
@@ -677,7 +678,7 @@ public class ClinicalWorkflowService {
 
 	private void autoDeductInventoryAndDispense(UUID clinicId, UUID actorId, InvoiceResponse invoice, String requestId) {
 		List<InvoiceLineResponse> lines = jdbcTemplate.query("""
-				select id, source_type, source_id, description, quantity, unit_price, discount_amount, tax_rate, tax_amount, line_total
+				select id, source_type, source_id, description, quantity, unit_price, discount_amount, tax_rate, tax_amount, line_total, hsn_sac
 				from invoice_lines where clinic_id = ? and invoice_id = ?
 				""",
 				(rs, rowNum) -> new InvoiceLineResponse(
@@ -690,7 +691,8 @@ public class ClinicalWorkflowService {
 						rs.getBigDecimal("discount_amount"),
 						rs.getBigDecimal("tax_rate"),
 						rs.getBigDecimal("tax_amount"),
-						rs.getBigDecimal("line_total")),
+						rs.getBigDecimal("line_total"),
+						rs.getString("hsn_sac")),
 				clinicId,
 				invoice.id());
 
@@ -1007,7 +1009,7 @@ public class ClinicalWorkflowService {
 		}
 		InvoiceResponse header = headers.getFirst();
 		List<InvoiceLineResponse> lines = jdbcTemplate.query("""
-				select id, source_type, source_id, description, quantity, unit_price, discount_amount, tax_rate, tax_amount, line_total
+				select id, source_type, source_id, description, quantity, unit_price, discount_amount, tax_rate, tax_amount, line_total, hsn_sac
 				from invoice_lines where clinic_id = ? and invoice_id = ? order by description
 				""",
 				(rs, rowNum) -> new InvoiceLineResponse(
@@ -1020,7 +1022,8 @@ public class ClinicalWorkflowService {
 						rs.getBigDecimal("discount_amount"),
 						rs.getBigDecimal("tax_rate"),
 						rs.getBigDecimal("tax_amount"),
-						rs.getBigDecimal("line_total")),
+						rs.getBigDecimal("line_total"),
+						rs.getString("hsn_sac")),
 				clinicId,
 				invoiceId);
 		return new InvoiceResponse(
@@ -1209,7 +1212,7 @@ public class ClinicalWorkflowService {
 				rs.getTimestamp("paid_at") == null ? null : rs.getTimestamp("paid_at").toInstant());
 	}
 
-	private record LineDraft(UUID sourceId, String description, BigDecimal quantity, BigDecimal unitPrice, BigDecimal taxRate, BigDecimal taxAmount, BigDecimal lineTotal) {
+	private record LineDraft(UUID sourceId, String description, BigDecimal quantity, BigDecimal unitPrice, BigDecimal taxRate, BigDecimal taxAmount, BigDecimal lineTotal, String hsnSac) {
 	}
 
 	public record ClientCreateRequest(String displayName, String phone, String email, String notes, boolean consentWhatsapp, boolean consentEmail, String category) {
@@ -1297,7 +1300,8 @@ public class ClinicalWorkflowService {
 			BigDecimal quantity,
 			BigDecimal unitPrice,
 			BigDecimal discountAmount,
-			BigDecimal taxRate) {
+			BigDecimal taxRate,
+			String hsnSac) {
 	}
 
 	public record InvoiceCreateRequest(
@@ -1314,7 +1318,7 @@ public class ClinicalWorkflowService {
 		}
 	}
 
-	public record InvoiceLineResponse(UUID id, String sourceType, UUID sourceId, String description, BigDecimal quantity, BigDecimal unitPrice, BigDecimal discountAmount, BigDecimal taxRate, BigDecimal taxAmount, BigDecimal lineTotal) {
+	public record InvoiceLineResponse(UUID id, String sourceType, UUID sourceId, String description, BigDecimal quantity, BigDecimal unitPrice, BigDecimal discountAmount, BigDecimal taxRate, BigDecimal taxAmount, BigDecimal lineTotal, String hsnSac) {
 	}
 
 	public record InvoiceResponse(

@@ -2,7 +2,9 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
+import { GST_SLABS, GstTaxEditor } from "@/components/gst-tax-editor";
 import {
+  updateProductTax,
   listProducts,
   createProduct,
   listBatches,
@@ -51,6 +53,8 @@ export default function InventoryPage() {
   const [newUnit, setNewUnit] = useState("UNIT");
   const [newPrice, setNewPrice] = useState("0.00");
   const [newCostPrice, setNewCostPrice] = useState("0.00");
+  const [newGstRate, setNewGstRate] = useState("12");
+  const [newHsnCode, setNewHsnCode] = useState("");
   const [newCompanyName, setNewCompanyName] = useState("");
   const [newDistributorId, setNewDistributorId] = useState("");
 
@@ -165,6 +169,8 @@ export default function InventoryPage() {
         purchasePrice: parseFloat(newCostPrice) || 0,
         companyName: newCompanyName || undefined,
         distributorId: newDistributorId || undefined,
+        gstRate: Number(newGstRate) || 0,
+        hsnCode: newHsnCode.trim() || undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inventory-products"] });
@@ -175,6 +181,7 @@ export default function InventoryPage() {
       setNewCostPrice("0.00");
       setNewCompanyName("");
       setNewDistributorId("");
+      setNewHsnCode("");
     },
   });
 
@@ -746,6 +753,7 @@ export default function InventoryPage() {
                       <th className="p-3">Buy Price (Cost)</th>
                       <th className="p-3">Sell Price (MRP)</th>
                       <th className="p-3">Margin %</th>
+                      <th className="p-3">GST</th>
                       <th className="p-3">Status</th>
                     </tr>
                   )}
@@ -753,11 +761,11 @@ export default function InventoryPage() {
                 <tbody className="divide-y divide-slate-100">
                   {productsQuery.isLoading ? (
                     <tr>
-                      <td colSpan={!canViewFinancials ? 6 : 9} className="p-4 text-center text-slate-400">Loading catalog…</td>
+                      <td colSpan={!canViewFinancials ? 6 : 10} className="p-4 text-center text-slate-400">Loading catalog…</td>
                     </tr>
                   ) : filteredProducts.length === 0 ? (
                     <tr>
-                      <td colSpan={!canViewFinancials ? 6 : 9} className="p-6 text-center text-slate-400">
+                      <td colSpan={!canViewFinancials ? 6 : 10} className="p-6 text-center text-slate-400">
                         {medicineSearch ? `No medications found matching "${medicineSearch}"` : "No products configured yet."}
                       </td>
                     </tr>
@@ -798,6 +806,17 @@ export default function InventoryPage() {
                             <span className={`rounded px-1.5 py-0.5 font-bold text-[10px] ${profit >= 0 ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
                               {margin}% ({profit >= 0 ? `+₹${profit.toFixed(2)}` : `-₹${Math.abs(profit).toFixed(2)}`})
                             </span>
+                          </td>
+                          <td className="p-3">
+                            <GstTaxEditor
+                              code={p.hsnCode}
+                              rate={p.gstRate}
+                              codeLabel="HSN"
+                              onSave={async (hsn, rate) => {
+                                await updateProductTax(p.id, { hsnCode: hsn, gstRate: rate });
+                                await queryClient.invalidateQueries({ queryKey: ["inventory-products"] });
+                              }}
+                            />
                           </td>
                           <td className="p-3">
                             <span className="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
@@ -918,6 +937,35 @@ export default function InventoryPage() {
                     placeholder="120.00"
                   />
                   <span className="text-[10px] text-slate-400">Counter retail price</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700">GST rate</label>
+                  <select
+                    value={newGstRate}
+                    onChange={(e) => setNewGstRate(e.target.value)}
+                    className="mt-1 w-full rounded border border-slate-300 p-2 text-sm"
+                  >
+                    {GST_SLABS.map((slab) => (
+                      <option key={slab} value={slab}>
+                        {slab}%
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-700">HSN code</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={16}
+                    value={newHsnCode}
+                    onChange={(e) => setNewHsnCode(e.target.value.replace(/[^0-9]/g, ""))}
+                    className="mt-1 w-full rounded border border-slate-300 p-2 text-sm font-mono"
+                  />
+                  <span className="text-[10px] text-slate-400">Printed on the tax invoice</span>
                 </div>
               </div>
 

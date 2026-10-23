@@ -43,7 +43,8 @@ class InvoicePdfServiceTest {
 						BigDecimal.ZERO,
 						new BigDecimal("0.18"),
 						new BigDecimal("18.00"),
-						new BigDecimal("118.00"))));
+						new BigDecimal("118.00"),
+						"998311")));
 
 		byte[] pdf = service.render(invoice, "Ravi Kumar", "Bruno", "PawCare Hospital");
 

@@ -22,7 +22,7 @@ import {
 } from "@/lib/api";
 import { PrintableDocumentModal } from "@/components/printable-document-modal";
 import { ALL_VETERINARY_DIAGNOSES, STANDARD_VETERINARY_MEDICINES } from "@/lib/clinical-constants";
-import { findConsultationService, findProductForMedicine } from "@/lib/pricing";
+import { findConsultationService, findProductForMedicine, gstOf } from "@/lib/pricing";
 import { formatMoney } from "@/lib/utils";
 
 export type PrescriptionItemDraft = {
@@ -282,7 +282,7 @@ export function RecordSoapModal({
           description: diagnosis.trim() ? `Consultation (${diagnosis.trim()})` : "Consultation",
           quantity: 1,
           unitPrice: consultFee > 0 ? consultFee : 0,
-          taxRate: 0,
+          ...gstOf(consultationService),
           priceMissing: !(consultFee > 0),
         },
         ...rxItems.map((item, idx) => {
@@ -294,7 +294,7 @@ export function RecordSoapModal({
             description: `Rx: ${item.medicineName}${item.dosage ? ` (${item.dosage})` : ""}`,
             quantity: Number(item.quantity) || 1,
             unitPrice: price,
-            taxRate: 0,
+            ...gstOf(product),
             priceMissing: price <= 0,
           };
         }),

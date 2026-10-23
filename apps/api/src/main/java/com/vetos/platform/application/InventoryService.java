@@ -32,58 +32,66 @@ public class InventoryService {
 		if (query != null && !query.isBlank()) {
 			String pattern = "%" + query.trim().toLowerCase() + "%";
 			return jdbcTemplate.query("""
-					select p.id, p.sku, p.name, p.unit, p.sale_price, p.status, p.company_name, p.distributor_id, v.name as distributor_name, coalesce(p.purchase_price, 0) as purchase_price
+					select p.id, p.sku, p.name, p.unit, p.sale_price, p.status, p.company_name, p.distributor_id, v.name as distributor_name, coalesce(p.purchase_price, 0) as purchase_price, p.hsn_code, p.gst_rate
 					from products p
 					left join vendors v on v.id = p.distributor_id and v.clinic_id = p.clinic_id
 					where p.clinic_id = ? and (lower(p.name) like ? or lower(p.sku) like ? or lower(coalesce(p.company_name, '')) like ?)
 					order by p.name
 					""",
-					(rs, rowNum) -> new ProductDto(
-							rs.getObject("id", UUID.class),
-							rs.getString("sku"),
-							rs.getString("name"),
-							rs.getString("unit"),
-							rs.getBigDecimal("sale_price"),
-							rs.getString("status"),
-							rs.getString("company_name"),
-							rs.getObject("distributor_id", UUID.class),
-							rs.getString("distributor_name"),
-							rs.getBigDecimal("purchase_price")),
+					(rs, rowNum) -> mapProduct(rs),
 					clinicId, pattern, pattern, pattern);
 		}
 		return jdbcTemplate.query("""
-				select p.id, p.sku, p.name, p.unit, p.sale_price, p.status, p.company_name, p.distributor_id, v.name as distributor_name, coalesce(p.purchase_price, 0) as purchase_price
+				select p.id, p.sku, p.name, p.unit, p.sale_price, p.status, p.company_name, p.distributor_id, v.name as distributor_name, coalesce(p.purchase_price, 0) as purchase_price, p.hsn_code, p.gst_rate
 				from products p
 				left join vendors v on v.id = p.distributor_id and v.clinic_id = p.clinic_id
 				where p.clinic_id = ?
 				order by p.name
 				""",
-				(rs, rowNum) -> new ProductDto(
-						rs.getObject("id", UUID.class),
-						rs.getString("sku"),
-						rs.getString("name"),
-						rs.getString("unit"),
-						rs.getBigDecimal("sale_price"),
-						rs.getString("status"),
-						rs.getString("company_name"),
-						rs.getObject("distributor_id", UUID.class),
-						rs.getString("distributor_name"),
-						rs.getBigDecimal("purchase_price")),
+				(rs, rowNum) -> mapProduct(rs),
 				clinicId);
+	}
+
+	private static ProductDto mapProduct(java.sql.ResultSet rs) throws java.sql.SQLException {
+		return new ProductDto(
+				rs.getObject("id", UUID.class),
+				rs.getString("sku"),
+				rs.getString("name"),
+				rs.getString("unit"),
+				rs.getBigDecimal("sale_price"),
+				rs.getString("status"),
+				rs.getString("company_name"),
+				rs.getObject("distributor_id", UUID.class),
+				rs.getString("distributor_name"),
+				rs.getBigDecimal("purchase_price"),
+				rs.getString("hsn_code"),
+				rs.getBigDecimal("gst_rate"));
 	}
 
 	public ProductDto createProduct(UUID clinicId, UUID actorId, ProductCreateRequest req, String requestId) {
 		UUID id = UuidV7.generate();
 		BigDecimal purchasePrice = req.purchasePrice() != null ? req.purchasePrice() : BigDecimal.ZERO;
+		String hsnCode = req.hsnCode() == null || req.hsnCode().isBlank() ? null : req.hsnCode().trim();
+		BigDecimal gstRate = req.gstRate() == null ? BigDecimal.ZERO : req.gstRate();
 		jdbcTemplate.update("""
-				insert into products (id, clinic_id, sku, name, unit, sale_price, status, company_name, distributor_id, purchase_price)
-				values (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)
+				insert into products (id, clinic_id, sku, name, unit, sale_price, status, company_name, distributor_id, purchase_price, hsn_code, gst_rate)
+				values (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
 				""",
 				id, clinicId, req.sku(), req.name(), req.unit() == null ? "UNIT" : req.unit(), req.salePrice(),
-				req.companyName(), req.distributorId(), purchasePrice);
+				req.companyName(), req.distributorId(), purchasePrice, hsnCode, gstRate);
 		auditRecorder.record(clinicId, actorId, "CREATE", "product", id, requestId);
 		return new ProductDto(id, req.sku(), req.name(), req.unit() == null ? "UNIT" : req.unit(), req.salePrice(), "ACTIVE",
-				req.companyName(), req.distributorId(), null, purchasePrice);
+				req.companyName(), req.distributorId(), null, purchasePrice, hsnCode, gstRate);
+	}
+
+	/** gstRate is a percentage (12 = 12%). */
+	public void updateProductTax(UUID clinicId, UUID actorId, UUID productId, String hsnCode, BigDecimal gstRate, String requestId) {
+		int updated = jdbcTemplate.update("update products set hsn_code = ?, gst_rate = ? where id = ? and clinic_id = ?",
+				hsnCode == null || hsnCode.isBlank() ? null : hsnCode.trim(), gstRate == null ? BigDecimal.ZERO : gstRate, productId, clinicId);
+		if (updated == 0) {
+			throw ApiException.notFound();
+		}
+		auditRecorder.record(clinicId, actorId, "UPDATE", "product", productId, requestId);
 	}
 
 	public List<BatchDto> listBatches(UUID clinicId, UUID branchId, UUID productId, boolean lowStockOnly, boolean expiringOnly) {
@@ -442,7 +450,10 @@ public class InventoryService {
 			String companyName,
 			UUID distributorId,
 			String distributorName,
-			BigDecimal purchasePrice) {}
+			BigDecimal purchasePrice,
+			String hsnCode,
+			/** GST percentage (12 = 12%). */
+			BigDecimal gstRate) {}
 
 	public record ProductCreateRequest(
 			String sku,
@@ -451,7 +462,9 @@ public class InventoryService {
 			BigDecimal salePrice,
 			String companyName,
 			UUID distributorId,
-			BigDecimal purchasePrice) {}
+			BigDecimal purchasePrice,
+			String hsnCode,
+			BigDecimal gstRate) {}
 
 	public record BatchDto(
 			UUID id,

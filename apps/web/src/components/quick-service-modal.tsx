@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Zap, X, Check, CheckCircle2, AlertCircle, Plus, Trash2 } from "lucide-react";
 import { listPatients, listClients, listServices, appendToBasket, type PatientRow, type ClientRow } from "@/lib/api";
 import { formatMoney } from "@/lib/utils";
+import { gstOf } from "@/lib/pricing";
 
 type CustomItem = { id: string; name: string; price: number };
 
@@ -59,7 +60,7 @@ export function QuickServiceModal({ isOpen, onClose }: { isOpen: boolean; onClos
           description: s.name,
           quantity: 1,
           unitPrice: Number(s.defaultPrice) || 0,
-          taxRate: 0,
+          ...gstOf(s),
           priceMissing: !(Number(s.defaultPrice) > 0),
         })),
         ...customItems.map((item) => ({

@@ -28,6 +28,8 @@ export type ClinicProfile = {
   allowMedicineDiscount?: boolean;
   address?: string | null;
   gstin?: string | null;
+  /** True when catalog prices already include GST (MRP style). */
+  pricesIncludeTax?: boolean;
   version: number;
 };
 
@@ -209,7 +211,17 @@ export type InvoiceRow = {
   total: string;
   amountPaid: string;
   status: string;
-  lines: { id: string; description: string; lineTotal: string }[];
+  subtotal?: number | string;
+  taxTotal?: number | string;
+  lines: {
+    id: string;
+    description: string;
+    lineTotal: string;
+    quantity?: number | string;
+    unitPrice?: number | string;
+    taxRate?: number | string;
+    hsnSac?: string | null;
+  }[];
 };
 
 export type BranchPage = {
@@ -304,7 +316,10 @@ export type InvoiceDetail = {
     description: string;
     quantity: number | string;
     unitPrice: number | string;
+    taxRate?: number | string;
+    taxAmount?: number | string;
     lineTotal: number | string;
+    hsnSac?: string | null;
   }[];
 };
 
@@ -604,6 +619,9 @@ export type Product = {
   distributorId?: string | null;
   distributorName?: string | null;
   purchasePrice?: number;
+  hsnCode?: string | null;
+  /** GST percentage, e.g. 12 for 12%. */
+  gstRate?: number;
 };
 
 export type InventoryBatch = {
@@ -665,8 +683,14 @@ export async function createProduct(body: {
   companyName?: string;
   distributorId?: string;
   purchasePrice?: number;
+  hsnCode?: string;
+  gstRate?: number;
 }): Promise<Product> {
   return apiJson<Product>("/api/v1/products/item", { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function updateProductTax(productId: string, body: { hsnCode?: string; gstRate: number }): Promise<void> {
+  await apiJson<void>(`/api/v1/products/${productId}/tax`, { method: "PATCH", body: JSON.stringify(body) });
 }
 
 export async function listBatches(params?: { branchId?: string; productId?: string; lowStockOnly?: boolean; expiringOnly?: boolean }): Promise<InventoryBatch[]> {
@@ -1027,15 +1051,22 @@ export type ServiceItem = {
   name: string;
   defaultPrice: number;
   status: string;
-  createdAt: string;
+  createdAt?: string;
+  hsnSac?: string | null;
+  /** GST percentage, e.g. 18 for 18%. */
+  gstRate?: number;
 };
 
 export async function listServices(): Promise<ServiceItem[]> {
   return apiJson<ServiceItem[]>("/api/v1/services");
 }
 
-export async function createService(body: { code: string; name: string; defaultPrice: number }): Promise<ServiceItem> {
+export async function createService(body: { code: string; name: string; defaultPrice: number; hsnSac?: string; gstRate?: number }): Promise<ServiceItem> {
   return apiJson<ServiceItem>("/api/v1/services", { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function updateServiceTax(id: string, body: { hsnSac?: string; gstRate: number }): Promise<ServiceItem> {
+  return apiJson<ServiceItem>(`/api/v1/services/${id}/tax`, { method: "PATCH", body: JSON.stringify(body) });
 }
 
 export async function updateServiceStatus(id: string, status: string): Promise<ServiceItem> {

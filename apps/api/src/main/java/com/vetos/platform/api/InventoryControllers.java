@@ -48,8 +48,19 @@ public class InventoryControllers {
 				auth.userId(),
 				new InventoryService.ProductCreateRequest(
 						body.sku(), body.name(), body.unit(), body.salePrice(),
-						body.companyName(), body.distributorId(), body.purchasePrice()),
+						body.companyName(), body.distributorId(), body.purchasePrice(), body.hsnCode(), body.gstRate()),
 				RequestIds.from(request));
+	}
+
+	@PatchMapping("/products/{productId}/tax")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void updateProductTax(
+			@AuthenticationPrincipal VetosAuthentication auth,
+			@PathVariable UUID productId,
+			@Valid @RequestBody ProductTaxBody body,
+			HttpServletRequest request) {
+		authorizationSupport.requirePermission(auth, "CATALOG_WRITE");
+		inventoryService.updateProductTax(auth.clinicId(), auth.userId(), productId, body.hsnCode(), body.gstRate(), RequestIds.from(request));
 	}
 
 	@GetMapping("/inventory/batches")
@@ -145,7 +156,14 @@ public class InventoryControllers {
 			@NotNull @DecimalMin("0.0") BigDecimal salePrice,
 			String companyName,
 			UUID distributorId,
-			BigDecimal purchasePrice) {}
+			BigDecimal purchasePrice,
+			@jakarta.validation.constraints.Size(max = 16) String hsnCode,
+			@DecimalMin("0.0") @jakarta.validation.constraints.DecimalMax("40.0") BigDecimal gstRate) {}
+
+	/** gstRate is a percentage (12 = 12%). */
+	public record ProductTaxBody(
+			@jakarta.validation.constraints.Size(max = 16) String hsnCode,
+			@NotNull @DecimalMin("0.0") @jakarta.validation.constraints.DecimalMax("40.0") BigDecimal gstRate) {}
 
 	public record BatchCreateBody(
 			@NotNull UUID productId,

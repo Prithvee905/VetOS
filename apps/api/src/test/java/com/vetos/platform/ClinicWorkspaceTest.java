@@ -132,6 +132,24 @@ class ClinicWorkspaceTest extends ApiIntegrationTest {
 	}
 
 	@Test
+	void gstInclusivePriceIsSplitIntoTaxableValueAndTax() throws Exception {
+		String reception = login(receptionEmail);
+		mockMvc.perform(post("/api/v1/invoices")
+						.cookie(new Cookie("vetos_access", reception))
+						.with(SecurityMockMvcRequestPostProcessors.csrf())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"clientId":"%s","patientId":"%s","lines":[
+								{"sourceType":"PRODUCT","description":"Drontal Plus","quantity":1,"unitPrice":1500,"taxRate":0.12,"hsnSac":"3004"}]}
+								""".formatted(clientId, patientId)))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.subtotal").value(1339.29))
+				.andExpect(jsonPath("$.taxTotal").value(160.71))
+				.andExpect(jsonPath("$.total").value(1500.00))
+				.andExpect(jsonPath("$.lines[0].hsnSac").value("3004"));
+	}
+
+	@Test
 	void unknownPatientIsNotFound() throws Exception {
 		String doctor = login(doctorEmail);
 		mockMvc.perform(get("/api/v1/patients/" + UuidV7.generate() + "/health-profile").cookie(new Cookie("vetos_access", doctor)))

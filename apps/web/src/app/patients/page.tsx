@@ -120,6 +120,8 @@ export default function PatientsPage() {
             quantity: Number(line.quantity) || 0,
             unitPrice: Number(line.unitPrice) || 0,
             total: Number(line.lineTotal) || 0,
+            hsnSac: line.hsnSac || undefined,
+            taxRate: Number(line.taxRate ?? 0) || 0,
           })),
           subtotal: Number(invoice.subtotal) || 0,
           taxAmount: Number(invoice.taxTotal) || 0,

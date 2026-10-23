@@ -73,6 +73,9 @@ public class ClinicService {
 		if (request.address() != null) {
 			clinic.setAddress(request.address().isBlank() ? null : request.address().trim());
 		}
+		if (request.pricesIncludeTax() != null) {
+			clinic.setPricesIncludeTax(request.pricesIncludeTax());
+		}
 		if (request.gstin() != null) {
 			clinic.setGstin(request.gstin().isBlank() ? null : request.gstin().trim().toUpperCase());
 		}
@@ -103,6 +106,7 @@ public class ClinicService {
 				clinic.isAllowMedicineDiscount(),
 				clinic.getAddress(),
 				clinic.getGstin(),
+				clinic.isPricesIncludeTax(),
 				clinic.getVersion());
 	}
 

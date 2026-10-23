@@ -76,7 +76,7 @@ import {
 } from "@/lib/clinical-constants";
 import { phoneDigitsForInput, resolveInvoiceWhatsAppPhone } from "@/lib/whatsapp-phone";
 import { formatMoney } from "@/lib/utils";
-import { findConsultationService, findProductForMedicine, findServiceByKeyword } from "@/lib/pricing";
+import { findConsultationService, findProductForMedicine, findServiceByKeyword, gstOf, lineGst } from "@/lib/pricing";
 
 type ActiveTab = "queue" | "appointments" | "soap" | "pos" | "register";
 
@@ -106,6 +106,8 @@ type BasketLine = {
   quantity: number;
   unitPrice: number;
   taxRate: number;
+  /** HSN (goods) or SAC (services) code printed on the tax invoice. */
+  hsnSac?: string;
   /** No catalog or inventory price was found; reception must enter one before invoicing. */
   priceMissing?: boolean;
 };
@@ -117,7 +119,17 @@ function invoiceDetailToRow(inv: InvoiceDetail): InvoiceRow {
     total: String(inv.total),
     amountPaid: String(inv.amountPaid),
     status: inv.status,
-    lines: inv.lines.map((line) => ({ id: line.id, description: line.description, lineTotal: String(line.lineTotal) })),
+    subtotal: inv.subtotal,
+    taxTotal: inv.taxTotal,
+    lines: inv.lines.map((line) => ({
+      id: line.id,
+      description: line.description,
+      lineTotal: String(line.lineTotal),
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
+      taxRate: line.taxRate,
+      hsnSac: line.hsnSac,
+    })),
   };
 }
 
@@ -131,8 +143,24 @@ type CompletedPaymentReceipt = {
   total: number;
   paymentMethod: string;
   dateStr: string;
-  lines: { description: string; quantity: number; unitPrice: number; total: number }[];
+  subtotal?: number;
+  taxTotal?: number;
+  lines: InvoiceLinePrint[];
 };
+
+type InvoiceLinePrint = { description: string; quantity: number; unitPrice: number; total: number; hsnSac?: string; taxRate?: number };
+
+/** Printable lines from an issued invoice, keeping the real quantity, unit price, HSN/SAC and GST rate. */
+function invoiceLinesForPrint(lines: InvoiceRow["lines"]): InvoiceLinePrint[] {
+  return lines.map((l) => ({
+    description: l.description,
+    quantity: Number(l.quantity ?? 1) || 1,
+    unitPrice: Number(l.unitPrice ?? l.lineTotal) || 0,
+    total: Number(l.lineTotal) || 0,
+    hsnSac: l.hsnSac || undefined,
+    taxRate: Number(l.taxRate ?? 0) || 0,
+  }));
+}
 
 export default function ClinicOperationsStation() {
   const queryClient = useQueryClient();
@@ -818,7 +846,7 @@ export default function ClinicOperationsStation() {
           description: primaryDiagnosis.trim() ? `Consultation (${primaryDiagnosis.trim()})` : "Consultation",
           quantity: 1,
           unitPrice: consultation ? Number(consultation.defaultPrice) || 0 : 0,
-          taxRate: 0,
+          ...gstOf(consultation),
           priceMissing: !consultation || !(Number(consultation.defaultPrice) > 0),
         },
       ];
@@ -831,7 +859,7 @@ export default function ClinicOperationsStation() {
           description: `Rx: ${item.medicineName}${item.dosage || item.duration ? ` (${[item.dosage, item.duration].filter(Boolean).join(", ")})` : ""}`,
           quantity: Number(item.quantity) || 1,
           unitPrice: price,
-          taxRate: 0,
+          ...gstOf(product),
           priceMissing: price <= 0,
         });
       });
@@ -1125,6 +1153,26 @@ export default function ClinicOperationsStation() {
     return Math.max(0, Number((basketTotal - discountAmount).toFixed(2)));
   }, [basketTotal, discountAmount]);
 
+  const pricesIncludeTax = clinicProfile.data?.pricesIncludeTax ?? true;
+
+  /** This line's share of the counter discount (medicines are excluded unless allowed). */
+  function lineDiscountFor(line: BasketLine): number {
+    const lineGross = line.quantity * line.unitPrice;
+    const isMedicine = line.sourceType === "PRODUCT" || line.sourceType === "PRESCRIPTION";
+    if (applyDiscountToMedicines) {
+      return basketTotal > 0 ? Number(((lineGross / basketTotal) * discountAmount).toFixed(2)) : 0;
+    }
+    if (isMedicine) return 0;
+    return servicesSubtotal > 0 ? Number(((lineGross / servicesSubtotal) * discountAmount).toFixed(2)) : 0;
+  }
+
+  // GST on the basket, worked out per line the same way the server does when it issues the invoice.
+  const basketGst = basketLines.reduce(
+    (acc, line) => acc + lineGst(line.quantity * line.unitPrice - lineDiscountFor(line), line.taxRate || 0, pricesIncludeTax).tax,
+    0
+  );
+  const payableTotal = pricesIncludeTax ? finalTotal : Number((finalTotal + basketGst).toFixed(2));
+
   function addServiceToBasket() {
     if (!selectedServiceId) return;
     const s = services.data?.find((item) => item.id === selectedServiceId);
@@ -1137,7 +1185,7 @@ export default function ClinicOperationsStation() {
         description: s.name,
         quantity: 1,
         unitPrice: s.defaultPrice,
-        taxRate: 0,
+        ...gstOf(s),
       },
     ]);
     setSelectedServiceId("");
@@ -1156,7 +1204,7 @@ export default function ClinicOperationsStation() {
         description: p.name,
         quantity: 1,
         unitPrice: p.salePrice,
-        taxRate: 0,
+        ...gstOf(p),
       },
     ]);
     setSelectedProductId("");
@@ -1226,18 +1274,7 @@ export default function ClinicOperationsStation() {
 
       // Standalone POS sale (Consultation / Services / Prescriptions / Retail Products)
       const lines = basketLines.map((line) => {
-        const lineGross = line.quantity * line.unitPrice;
-        const isMedicine = line.sourceType === "PRODUCT" || line.sourceType === "PRESCRIPTION";
-        let lineDiscount = 0;
-
-        if (isMedicine && !applyDiscountToMedicines) {
-          lineDiscount = 0;
-        } else if (applyDiscountToMedicines) {
-          lineDiscount = basketTotal > 0 ? Number(((lineGross / basketTotal) * discountAmount).toFixed(2)) : 0;
-        } else {
-          lineDiscount = servicesSubtotal > 0 ? Number(((lineGross / servicesSubtotal) * discountAmount).toFixed(2)) : 0;
-        }
-
+        const lineDiscount = lineDiscountFor(line);
         return {
           sourceType: line.sourceType || "CUSTOM",
           sourceId: line.sourceId || (line.id?.startsWith("prod-") ? line.id.split("-")[1] : undefined),
@@ -1246,6 +1283,7 @@ export default function ClinicOperationsStation() {
           unitPrice: line.unitPrice,
           discountAmount: lineDiscount,
           taxRate: line.taxRate || 0,
+          hsnSac: line.hsnSac,
         };
       });
 
@@ -1336,16 +1374,13 @@ export default function ClinicOperationsStation() {
           clientPhone: receiptPhone,
           clientEmail: client?.email || "",
           petName: pet?.name || "Patient",
-          total: Number(issuedInvoice.total) || finalTotal,
+          total: Number(issuedInvoice.total) || payableTotal,
+          subtotal: issuedInvoice.subtotal !== undefined ? Number(issuedInvoice.subtotal) : undefined,
+          taxTotal: issuedInvoice.taxTotal !== undefined ? Number(issuedInvoice.taxTotal) : undefined,
           paymentMethod,
           dateStr: new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }),
           lines: (issuedInvoice.lines && issuedInvoice.lines.length > 0)
-            ? issuedInvoice.lines.map((l) => ({
-                description: l.description,
-                quantity: 1,
-                unitPrice: Number(l.lineTotal) || 0,
-                total: Number(l.lineTotal) || 0,
-              }))
+            ? invoiceLinesForPrint(issuedInvoice.lines)
             : basketLines.map((b) => ({
                 description: b.description,
                 quantity: b.quantity,
@@ -3795,9 +3830,16 @@ export default function ClinicOperationsStation() {
                   )}
                 </div>
 
+                {basketGst > 0 && (
+                  <div className="flex justify-between text-xs text-slate-600">
+                    <span>{pricesIncludeTax ? "GST included in prices" : "GST added"} (CGST + SGST)</span>
+                    <span>₹{basketGst.toFixed(2)}</span>
+                  </div>
+                )}
+
                 <div className="flex justify-between items-center text-lg font-bold text-slate-900 pt-1 border-t border-dashed border-slate-200">
                   <span>Net Grand Total</span>
-                  <span className="text-2xl text-teal-800">₹{finalTotal.toFixed(2)}</span>
+                  <span className="text-2xl text-teal-800">₹{payableTotal.toFixed(2)}</span>
                 </div>
 
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-4 bg-slate-50 rounded-lg p-3 border border-slate-200">
@@ -4218,20 +4260,18 @@ export default function ClinicOperationsStation() {
             lines: completedReceipt?.lines && completedReceipt.lines.length > 0
               ? completedReceipt.lines
               : (issuedInvoice?.lines && issuedInvoice.lines.length > 0)
-              ? issuedInvoice.lines.map((l) => ({
-                  description: l.description,
-                  quantity: 1,
-                  unitPrice: Number(l.lineTotal) || 0,
-                  total: Number(l.lineTotal) || 0,
-                }))
+              ? invoiceLinesForPrint(issuedInvoice.lines)
               : basketLines.map((b) => ({
                   description: b.description,
                   quantity: b.quantity,
                   unitPrice: b.unitPrice,
                   total: b.quantity * b.unitPrice,
                 })),
-            subtotal: completedReceipt?.total || Number(issuedInvoice?.total) || basketLines.reduce((acc, b) => acc + b.quantity * b.unitPrice, 0),
-            taxAmount: 0,
+            subtotal:
+              completedReceipt?.subtotal ??
+              (issuedInvoice?.subtotal !== undefined ? Number(issuedInvoice.subtotal) : undefined) ??
+              (completedReceipt?.total || Number(issuedInvoice?.total) || basketLines.reduce((acc, b) => acc + b.quantity * b.unitPrice, 0)),
+            taxAmount: completedReceipt?.taxTotal ?? Number(issuedInvoice?.taxTotal ?? 0),
             grandTotal: completedReceipt?.total || Number(issuedInvoice?.total) || basketLines.reduce((acc, b) => acc + b.quantity * b.unitPrice, 0),
             paymentStatus: completedReceipt ? "PAID" : (issuedInvoice?.status === "PAID" ? "PAID" : "PENDING"),
             paymentMethod: completedReceipt?.paymentMethod || paymentMethod,

@@ -36,6 +36,16 @@ export type PrescriptionPrintData = {
   }>;
 };
 
+/** Intra-state GST is split equally into CGST and SGST, the same way the server does. */
+function splitGst(tax: number): { cgst: number; sgst: number } {
+  const cgst = Math.round((tax / 2) * 100) / 100;
+  return { cgst, sgst: Math.round((tax - cgst) * 100) / 100 };
+}
+
+function gstPercent(rate: number | undefined): string {
+  return `${Math.round((rate ?? 0) * 10000) / 100}%`;
+}
+
 export type InvoicePrintData = {
   clinicName?: string;
   clinicAddress?: string;
@@ -53,6 +63,9 @@ export type InvoicePrintData = {
     quantity: number;
     unitPrice: number;
     total: number;
+    hsnSac?: string;
+    /** GST as a fraction, e.g. 0.12. */
+    taxRate?: number;
   }>;
   subtotal: number;
   taxAmount: number;
@@ -422,10 +435,16 @@ export function PrintableDocumentModal({
                       <span>{money(invoiceData.subtotal)}</span>
                     </div>
                     {invoiceData.taxAmount > 0 && (
-                      <div className="flex justify-between">
-                        <span>Tax / GST:</span>
-                        <span>{money(invoiceData.taxAmount)}</span>
-                      </div>
+                      <>
+                        <div className="flex justify-between">
+                          <span>CGST:</span>
+                          <span>{money(splitGst(invoiceData.taxAmount).cgst)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>SGST:</span>
+                          <span>{money(splitGst(invoiceData.taxAmount).sgst)}</span>
+                        </div>
+                      </>
                     )}
                     <div className="flex justify-between text-xs font-bold pt-1 border-t border-slate-800">
                       <span>GRAND TOTAL:</span>
@@ -510,8 +529,10 @@ export function PrintableDocumentModal({
                       <tr>
                         <th className="p-2 border-r border-slate-200">#</th>
                         <th className="p-2 border-r border-slate-200">Description / Service / Product</th>
+                        <th className="p-2 border-r border-slate-200">HSN/SAC</th>
                         <th className="p-2 border-r border-slate-200 text-center">Qty</th>
                         <th className="p-2 border-r border-slate-200 text-right">Unit Price</th>
+                        <th className="p-2 border-r border-slate-200 text-right">GST</th>
                         <th className="p-2 text-right">Total</th>
                       </tr>
                     </thead>
@@ -520,8 +541,10 @@ export function PrintableDocumentModal({
                         <tr key={idx} className="hover:bg-slate-50/50">
                           <td className="p-2 border-r border-slate-100 text-slate-500">{idx + 1}</td>
                           <td className="p-2 border-r border-slate-100 font-semibold">{line.description}</td>
+                          <td className="p-2 border-r border-slate-100 font-mono text-[11px]">{line.hsnSac || "—"}</td>
                           <td className="p-2 border-r border-slate-100 text-center">{line.quantity}</td>
                           <td className="p-2 border-r border-slate-100 text-right">{money(line.unitPrice)}</td>
+                          <td className="p-2 border-r border-slate-100 text-right">{gstPercent(line.taxRate)}</td>
                           <td className="p-2 text-right font-bold text-slate-900">{money(line.total)}</td>
                         </tr>
                       ))}
@@ -536,10 +559,16 @@ export function PrintableDocumentModal({
                         <span className="font-semibold">{money(invoiceData.subtotal)}</span>
                       </div>
                       {invoiceData.taxAmount > 0 && (
-                        <div className="flex justify-between text-slate-600">
-                          <span>Tax / GST:</span>
-                          <span className="font-semibold">{money(invoiceData.taxAmount)}</span>
-                        </div>
+                        <>
+                          <div className="flex justify-between text-slate-600">
+                            <span>CGST:</span>
+                            <span className="font-semibold">{money(splitGst(invoiceData.taxAmount).cgst)}</span>
+                          </div>
+                          <div className="flex justify-between text-slate-600">
+                            <span>SGST:</span>
+                            <span className="font-semibold">{money(splitGst(invoiceData.taxAmount).sgst)}</span>
+                          </div>
+                        </>
                       )}
                       <div className="flex justify-between text-sm font-bold text-slate-900 border-t border-slate-200 pt-1.5">
                         <span>Net Payable:</span>

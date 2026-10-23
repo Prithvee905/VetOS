@@ -55,6 +55,9 @@ public class ClinicEntity {
 	@Column(name = "allow_medicine_discount", nullable = false)
 	private boolean allowMedicineDiscount = false;
 
+	@Column(name = "prices_include_tax", nullable = false)
+	private boolean pricesIncludeTax = true;
+
 	@Column(name = "created_at", nullable = false)
 	private Instant createdAt;
 
@@ -170,6 +173,14 @@ public class ClinicEntity {
 
 	public void setNgoConsultationDiscountPercent(BigDecimal ngoConsultationDiscountPercent) {
 		this.ngoConsultationDiscountPercent = ngoConsultationDiscountPercent;
+	}
+
+	public boolean isPricesIncludeTax() {
+		return pricesIncludeTax;
+	}
+
+	public void setPricesIncludeTax(boolean pricesIncludeTax) {
+		this.pricesIncludeTax = pricesIncludeTax;
 	}
 
 	public boolean isAllowMedicineDiscount() {

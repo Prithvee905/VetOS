@@ -139,6 +139,22 @@ export default function ClinicSettingsPage() {
           {values.gstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(values.gstin) && (
             <p className="text-xs text-amber-700">A GSTIN has 15 characters, e.g. 36ABCDE1234F1Z5.</p>
           )}
+          <label className="flex items-start gap-3 cursor-pointer pt-1">
+            <input
+              id="pricesIncludeTax"
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-slate-300"
+              checked={values.pricesIncludeTax ?? true}
+              onChange={(event) => setForm((current) => ({ ...current, pricesIncludeTax: event.target.checked }))}
+            />
+            <span>
+              <span className="text-sm font-medium">Prices include GST</span>
+              <span className="block text-xs text-slate-500">
+                On: the price you enter is what the client pays and GST is worked out from it (MRP style). Off: GST is added on top of the price.
+                Set each service&apos;s and product&apos;s GST rate and HSN/SAC code in the catalog.
+              </span>
+            </span>
+          </label>
         </div>
 
         {/* Discount & Pricing Rules */}
@@ -294,6 +310,7 @@ export default function ClinicSettingsPage() {
               legalName: values.legalName ?? "",
               address: values.address ?? "",
               gstin: values.gstin ?? "",
+              pricesIncludeTax: values.pricesIncludeTax ?? true,
               maxStaffDiscountPercent: values.maxStaffDiscountPercent ?? 20,
               loyalDiscountPercent: values.loyalDiscountPercent ?? 30,
               ngoConsultationDiscountPercent: values.ngoConsultationDiscountPercent ?? 50,

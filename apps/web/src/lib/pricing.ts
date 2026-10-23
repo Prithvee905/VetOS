@@ -34,3 +34,31 @@ export function findProductForMedicine(
   const name = normalize(medicineName);
   return name ? list.find((p) => normalize(p.name) === name) : undefined;
 }
+
+/**
+ * GST fields for a basket line from a catalog service or inventory product.
+ * The catalog stores a percentage (12); invoices store a fraction (0.12).
+ */
+export function gstOf(item: { gstRate?: number | null; hsnSac?: string | null; hsnCode?: string | null } | undefined): {
+  taxRate: number;
+  hsnSac?: string;
+} {
+  const rate = Number(item?.gstRate ?? 0);
+  const code = item?.hsnSac ?? item?.hsnCode ?? undefined;
+  return { taxRate: rate > 0 ? rate / 100 : 0, ...(code ? { hsnSac: code } : {}) };
+}
+
+/**
+ * Taxable value and GST for a line after discount, matching the server's GstMath:
+ * inclusive prices contain the GST, exclusive prices have it added on top.
+ */
+export function lineGst(netAmount: number, taxRate: number, pricesIncludeTax: boolean): { taxable: number; tax: number; total: number } {
+  const round = (n: number) => Math.round(n * 100) / 100;
+  if (!(taxRate > 0)) return { taxable: round(netAmount), tax: 0, total: round(netAmount) };
+  if (pricesIncludeTax) {
+    const taxable = round(netAmount / (1 + taxRate));
+    return { taxable, tax: round(netAmount - taxable), total: round(netAmount) };
+  }
+  const tax = round(netAmount * taxRate);
+  return { taxable: round(netAmount), tax, total: round(netAmount + tax) };
+}

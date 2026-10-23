@@ -42,7 +42,7 @@ public class ServiceCatalogController {
 		return serviceCatalogService.createService(
 				auth.clinicId(),
 				auth.userId(),
-				new ServiceCatalogService.ServiceCreateRequest(body.code(), body.name(), body.defaultPrice()),
+				new ServiceCatalogService.ServiceCreateRequest(body.code(), body.name(), body.defaultPrice(), body.hsnSac(), body.gstRate()),
 				RequestIds.from(request));
 	}
 
@@ -56,10 +56,27 @@ public class ServiceCatalogController {
 		return serviceCatalogService.updateStatus(auth.clinicId(), auth.userId(), id, body.status(), RequestIds.from(request));
 	}
 
+	@PatchMapping("/{id}/tax")
+	public ServiceCatalogService.ServiceItemDto updateTax(
+			@AuthenticationPrincipal VetosAuthentication auth,
+			@PathVariable UUID id,
+			@Valid @RequestBody TaxBody body,
+			HttpServletRequest request) {
+		authorizationSupport.requirePermission(auth, "CATALOG_WRITE");
+		return serviceCatalogService.updateTax(auth.clinicId(), auth.userId(), id, body.hsnSac(), body.gstRate(), RequestIds.from(request));
+	}
+
 	public record ServiceCreateBody(
 			@NotBlank String code,
 			@NotBlank String name,
-			@NotNull @DecimalMin("0.0") BigDecimal defaultPrice) {}
+			@NotNull @DecimalMin("0.0") BigDecimal defaultPrice,
+			@jakarta.validation.constraints.Size(max = 16) String hsnSac,
+			@DecimalMin("0.0") @jakarta.validation.constraints.DecimalMax("40.0") BigDecimal gstRate) {}
+
+	/** gstRate is a percentage (18 = 18%). */
+	public record TaxBody(
+			@jakarta.validation.constraints.Size(max = 16) String hsnSac,
+			@NotNull @DecimalMin("0.0") @jakarta.validation.constraints.DecimalMax("40.0") BigDecimal gstRate) {}
 
 	public record ServiceStatusBody(@NotBlank String status) {}
 }
