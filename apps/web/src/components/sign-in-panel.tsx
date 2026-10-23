@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { login } from "@/lib/api";
+import { login, loginTwoStep, type SessionUser } from "@/lib/api";
 import { useUiStore } from "@/lib/ui-store";
 
 const signInSchema = z.object({
@@ -24,6 +24,14 @@ export function SignInPanel() {
   const dismissNotice = useUiStore((state) => state.dismissNotice);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+
+  function finishSignIn(session: SessionUser) {
+    queryClient.setQueryData(["session"], session);
+    dismissNotice();
+    router.push(session.twoStepSetupRequired ? "/account/security" : "/dashboard");
+  }
   const form = useForm<SignInValues>({
     resolver: zodResolver(signInSchema),
     defaultValues: { email: "", password: "" },
@@ -48,16 +56,61 @@ export function SignInPanel() {
       {form.formState.errors.password ? (
         <p className="text-sm text-rose-700">{form.formState.errors.password.message}</p>
       ) : null}
+      {challengeToken ? (
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setSubmitting(true);
+            setError(null);
+            try {
+              finishSignIn(await loginTwoStep(challengeToken, code));
+            } catch (caught) {
+              const message = caught instanceof Error ? caught.message : "Sign-in failed.";
+              setError(message);
+              if (message.toLowerCase().includes("too long")) {
+                setChallengeToken(null);
+              }
+            } finally {
+              setSubmitting(false);
+            }
+          }}
+        >
+          <label className="text-sm font-medium" htmlFor="two-step-code">
+            Code from your authenticator app
+          </label>
+          <input
+            id="two-step-code"
+            className="rounded-md border border-slate-300 px-3 py-2 text-center font-mono text-lg tracking-widest"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoFocus
+            maxLength={11}
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/[^0-9a-zA-Z-]/g, ""))}
+          />
+          <p className="text-xs text-slate-500">Lost your phone? Enter one of your recovery codes instead, or ask the clinic owner to reset two-step login.</p>
+          <Button type="submit" disabled={submitting || code.length < 6}>
+            {submitting ? "Checking…" : "Verify"}
+          </Button>
+          <button type="button" className="text-sm text-slate-500 underline" onClick={() => { setChallengeToken(null); setError(null); }}>
+            Back
+          </button>
+        </form>
+      ) : (
       <form
         className="flex flex-col gap-3"
         onSubmit={form.handleSubmit(async (values) => {
           setSubmitting(true);
           setError(null);
           try {
-            const session = await login(values.email, values.password);
-            queryClient.setQueryData(["session"], session);
-            dismissNotice();
-            router.push("/dashboard");
+            const result = await login(values.email, values.password);
+            if ("twoStepRequired" in result) {
+              setChallengeToken(result.challengeToken);
+              setCode("");
+              return;
+            }
+            finishSignIn(result);
           } catch (caught) {
             setError(caught instanceof Error ? caught.message : "Sign-in failed.");
           } finally {
@@ -89,6 +142,7 @@ export function SignInPanel() {
           {submitting ? "Signing in…" : "Sign in"}
         </Button>
       </form>
+      )}
     </main>
   );
 }

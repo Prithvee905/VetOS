@@ -33,6 +33,7 @@ public class AuthService {
 	private final AccessTokenService accessTokenService;
 	private final AuditRecorder auditRecorder;
 	private final VetosProperties properties;
+	private final TwoStepService twoStepService;
 	private final String dummyHash;
 
 	public AuthService(
@@ -42,7 +43,8 @@ public class AuthService {
 			PasswordEncoder passwordEncoder,
 			AccessTokenService accessTokenService,
 			AuditRecorder auditRecorder,
-			VetosProperties properties) {
+			VetosProperties properties,
+			TwoStepService twoStepService) {
 		this.jdbcTemplate = jdbcTemplate;
 		this.transactionTemplate = transactionTemplate;
 		this.tenantTransactionSupport = tenantTransactionSupport;
@@ -50,10 +52,12 @@ public class AuthService {
 		this.accessTokenService = accessTokenService;
 		this.auditRecorder = auditRecorder;
 		this.properties = properties;
+		this.twoStepService = twoStepService;
 		this.dummyHash = passwordEncoder.encode("vetos-dummy-password");
 	}
 
-	public IssuedSession login(String email, String password, String requestId) {
+	/** Password check. Accounts with two-step login get a challenge to complete with {@link #completeTwoStep}. */
+	public LoginResult login(String email, String password, String requestId) {
 		Optional<LoginAccount> found = findLogin(email);
 		if (found.isEmpty()) {
 			passwordEncoder.matches(password, dummyHash);
@@ -70,7 +74,32 @@ public class AuthService {
 			}
 			throw ApiException.unauthorized();
 		}
-		return issue(account.userId(), account.clinicId(), account.displayName(), true, null, requestId);
+		if (account.twoStepEnabled()) {
+			return new LoginResult(null, accessTokenService.issueTwoStepChallenge(account.userId(), account.clinicId()));
+		}
+		return new LoginResult(issue(account.userId(), account.clinicId(), account.displayName(), true, null, requestId), null);
+	}
+
+	/** Second step: a code from the authenticator app, or one of the user's recovery codes. */
+	public IssuedSession completeTwoStep(String challengeToken, String code, String requestId) {
+		UUID[] ids;
+		try {
+			ids = accessTokenService.readTwoStepChallenge(challengeToken);
+		}
+		catch (RuntimeException invalid) {
+			throw new ApiException(org.springframework.http.HttpStatus.UNAUTHORIZED, "TWO_STEP_EXPIRED",
+					"The sign-in took too long. Enter your email and password again.");
+		}
+		UUID userId = ids[0];
+		UUID clinicId = ids[1];
+		Boolean accepted = transactionTemplate.execute(status -> {
+			tenantTransactionSupport.setClinic(clinicId);
+			return twoStepService.verifyLoginCode(clinicId, userId, code);
+		});
+		if (!Boolean.TRUE.equals(accepted)) {
+			throw new ApiException(org.springframework.http.HttpStatus.UNAUTHORIZED, "TWO_STEP_INVALID", "That code is not right. Try the latest code from your app.");
+		}
+		return issue(userId, clinicId, null, true, null, requestId);
 	}
 
 	public IssuedSession refresh(String refreshToken, String requestId) {
@@ -113,6 +142,7 @@ public class AuthService {
 			tenantTransactionSupport.setClinic(clinicId);
 			String displayName = knownDisplayName == null ? loadDisplayName(userId) : knownDisplayName;
 			List<String> roles = loadRoles(userId);
+			boolean twoStepSetupRequired = twoStepService.setupRequired(userId, roles);
 			if (resetFailures) {
 				jdbcTemplate.update(
 						"update users set failed_login_count = 0, locked_until = null, updated_at = now() where id = ?",
@@ -145,8 +175,8 @@ public class AuthService {
 					"user",
 					userId,
 					requestId);
-			String accessToken = accessTokenService.issue(userId, clinicId, displayName, roles);
-			return new IssuedSession(new SessionUser(userId, clinicId, displayName, roles), accessToken, refreshToken);
+			String accessToken = accessTokenService.issue(userId, clinicId, displayName, roles, twoStepSetupRequired);
+			return new IssuedSession(new SessionUser(userId, clinicId, displayName, roles, twoStepSetupRequired), accessToken, refreshToken);
 		});
 	}
 
@@ -180,7 +210,7 @@ public class AuthService {
 
 	private Optional<LoginAccount> findLogin(String email) {
 		List<LoginAccount> rows = jdbcTemplate.query("""
-				select user_id, clinic_id, password_hash, status, display_name, failed_login_count, locked_until
+				select user_id, clinic_id, password_hash, status, display_name, failed_login_count, locked_until, two_step_enabled
 				from app.find_login(?)
 				""",
 				(rs, row) -> new LoginAccount(
@@ -190,7 +220,8 @@ public class AuthService {
 						rs.getString("status"),
 						rs.getString("display_name"),
 						rs.getInt("failed_login_count"),
-						rs.getTimestamp("locked_until") == null ? null : rs.getTimestamp("locked_until").toInstant()),
+						rs.getTimestamp("locked_until") == null ? null : rs.getTimestamp("locked_until").toInstant(),
+						rs.getBoolean("two_step_enabled")),
 				email);
 		return rows.stream().findFirst();
 	}
@@ -224,6 +255,10 @@ public class AuthService {
 	public record IssuedSession(SessionUser user, String accessToken, String refreshToken) {
 	}
 
+	/** Either a session, or a two-step challenge token when the account uses an authenticator app. */
+	public record LoginResult(IssuedSession session, String twoStepChallenge) {
+	}
+
 	private record LoginAccount(
 			UUID userId,
 			UUID clinicId,
@@ -231,7 +266,8 @@ public class AuthService {
 			String status,
 			String displayName,
 			int failedLoginCount,
-			Instant lockedUntil) {
+			Instant lockedUntil,
+			boolean twoStepEnabled) {
 	}
 
 	private record StoredRefreshToken(

@@ -5,6 +5,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import com.vetos.identity.domain.VetosAuthentication;
 import java.io.IOException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -25,7 +26,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 		String token = read(request);
 		if (token != null && SecurityContextHolder.getContext().getAuthentication() == null) {
 			try {
-				SecurityContextHolder.getContext().setAuthentication(accessTokenService.authenticate(token));
+				VetosAuthentication authentication = accessTokenService.authenticate(token);
+				SecurityContextHolder.getContext().setAuthentication(authentication);
+				if (authentication.twoStepSetupRequired() && !request.getRequestURI().startsWith("/api/v1/auth/")) {
+					// Only sign-in and two-step setup are allowed until the user sets up their authenticator app.
+					response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+					response.setContentType("application/json");
+					response.getWriter().write("{\"code\":\"TWO_STEP_SETUP_REQUIRED\",\"message\":\"Your clinic requires two-step login. Set up your authenticator app to continue.\"}");
+					return;
+				}
 			}
 			catch (RuntimeException exception) {
 				SecurityContextHolder.clearContext();

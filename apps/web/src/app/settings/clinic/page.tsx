@@ -157,6 +157,25 @@ export default function ClinicSettingsPage() {
           </label>
         </div>
 
+        {/* Sign-in security */}
+        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              id="requireTwoStep"
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-slate-300"
+              checked={values.requireTwoStep ?? false}
+              onChange={(event) => setForm((current) => ({ ...current, requireTwoStep: event.target.checked }))}
+            />
+            <span>
+              <span className="text-sm font-bold text-slate-900">Require two-step login for owners and doctors</span>
+              <span className="block text-xs text-slate-500">
+                They must add VetOS to an authenticator app at their next sign-in. Set up your own first in Account security.
+              </span>
+            </span>
+          </label>
+        </div>
+
         {/* Discount & Pricing Rules */}
         <div className="rounded-xl bg-teal-50/60 border border-teal-200 p-4 space-y-4">
           <div>
@@ -311,6 +330,7 @@ export default function ClinicSettingsPage() {
               address: values.address ?? "",
               gstin: values.gstin ?? "",
               pricesIncludeTax: values.pricesIncludeTax ?? true,
+              requireTwoStep: values.requireTwoStep ?? false,
               maxStaffDiscountPercent: values.maxStaffDiscountPercent ?? 20,
               loyalDiscountPercent: values.loyalDiscountPercent ?? 30,
               ngoConsultationDiscountPercent: values.ngoConsultationDiscountPercent ?? 50,

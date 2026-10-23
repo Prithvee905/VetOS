@@ -58,6 +58,9 @@ public class ClinicEntity {
 	@Column(name = "prices_include_tax", nullable = false)
 	private boolean pricesIncludeTax = true;
 
+	@Column(name = "require_two_step", nullable = false)
+	private boolean requireTwoStep = false;
+
 	@Column(name = "created_at", nullable = false)
 	private Instant createdAt;
 
@@ -181,6 +184,14 @@ public class ClinicEntity {
 
 	public void setPricesIncludeTax(boolean pricesIncludeTax) {
 		this.pricesIncludeTax = pricesIncludeTax;
+	}
+
+	public boolean isRequireTwoStep() {
+		return requireTwoStep;
+	}
+
+	public void setRequireTwoStep(boolean requireTwoStep) {
+		this.requireTwoStep = requireTwoStep;
 	}
 
 	public boolean isAllowMedicineDiscount() {

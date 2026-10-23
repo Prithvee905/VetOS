@@ -10,6 +10,14 @@ export type SessionUser = {
   clinicId: string;
   displayName: string;
   roles: string[];
+  /** The clinic requires two-step login and this user must set it up first. */
+  twoStepSetupRequired?: boolean;
+};
+
+/** Password was right; a code from the authenticator app is needed to finish signing in. */
+export type TwoStepChallenge = {
+  twoStepRequired: true;
+  challengeToken: string;
 };
 
 export type ClinicProfile = {
@@ -28,6 +36,8 @@ export type ClinicProfile = {
   allowMedicineDiscount?: boolean;
   address?: string | null;
   gstin?: string | null;
+  /** Owners and doctors must use an authenticator app to sign in. */
+  requireTwoStep?: boolean;
   /** True when catalog prices already include GST (MRP style). */
   pricesIncludeTax?: boolean;
   version: number;
@@ -99,7 +109,7 @@ export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<
     headers.set("X-XSRF-TOKEN", csrf);
   }
   let response = await fetchWithTimeout(`${apiUrl()}${path}`, { ...init, headers, credentials: "include" });
-  if (response.status === 401 && path !== "/api/v1/auth/login" && path !== "/api/v1/auth/refresh") {
+  if (response.status === 401 && !path.startsWith("/api/v1/auth/login") && path !== "/api/v1/auth/refresh") {
     try {
       await ensureCsrf();
       const refreshHeaders = new Headers();
@@ -134,12 +144,52 @@ export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<
   return JSON.parse(text) as T;
 }
 
-export async function login(email: string, password: string): Promise<SessionUser> {
+export async function login(email: string, password: string): Promise<SessionUser | TwoStepChallenge> {
   await ensureCsrf();
-  return apiJson<SessionUser>("/api/v1/auth/login", {
+  return apiJson<SessionUser | TwoStepChallenge>("/api/v1/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
+}
+
+export async function loginTwoStep(challengeToken: string, code: string): Promise<SessionUser> {
+  return apiJson<SessionUser>("/api/v1/auth/login/two-step", {
+    method: "POST",
+    body: JSON.stringify({ challengeToken, code }),
+  });
+}
+
+export type TwoStepStatus = { enabled: boolean; required: boolean; recoveryCodesLeft: number };
+export type TwoStepSetup = { secret: string; otpauthUri: string; qrSvg: string };
+
+export async function getTwoStepStatus(): Promise<TwoStepStatus> {
+  return apiJson<TwoStepStatus>("/api/v1/auth/two-step");
+}
+
+export async function beginTwoStepSetup(): Promise<TwoStepSetup> {
+  return apiJson<TwoStepSetup>("/api/v1/auth/two-step/setup", { method: "POST" });
+}
+
+export async function enableTwoStep(code: string): Promise<{ recoveryCodes: string[] }> {
+  return apiJson<{ recoveryCodes: string[] }>("/api/v1/auth/two-step/enable", { method: "POST", body: JSON.stringify({ code }) });
+}
+
+export async function renewRecoveryCodes(code: string): Promise<{ recoveryCodes: string[] }> {
+  return apiJson<{ recoveryCodes: string[] }>("/api/v1/auth/two-step/recovery-codes", { method: "POST", body: JSON.stringify({ code }) });
+}
+
+export async function disableTwoStep(password: string, code: string): Promise<void> {
+  await apiJson<void>("/api/v1/auth/two-step/disable", { method: "POST", body: JSON.stringify({ password, code }) });
+}
+
+export async function resetUserTwoStep(userId: string): Promise<void> {
+  await apiJson<void>(`/api/v1/users/${userId}/two-step/reset`, { method: "POST" });
+}
+
+/** Gets a fresh session cookie (e.g. right after turning on two-step login). */
+export async function refreshSession(): Promise<SessionUser> {
+  await ensureCsrf();
+  return apiJson<SessionUser>("/api/v1/auth/refresh", { method: "POST" });
 }
 
 export async function currentUser(): Promise<SessionUser> {

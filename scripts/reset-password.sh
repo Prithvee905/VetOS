@@ -6,6 +6,7 @@
 #   ./scripts/reset-password.sh "<User Email>" "<New Password>"
 # Example:
 #   ./scripts/reset-password.sh "dr.sharma@citypet.com" "NewSecretPass@456"
+# Also clears two-step login, for a user who lost both their phone and recovery codes.
 # ==============================================================================
 
 set -euo pipefail

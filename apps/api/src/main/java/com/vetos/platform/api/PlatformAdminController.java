@@ -123,13 +123,19 @@ public class PlatformAdminController {
 					"update users set password_hash = ?, failed_login_count = 0, locked_until = null, updated_at = now() where id = ?",
 					newHash,
 					userId);
+			// Break-glass recovery (lost phone and recovery codes): the user sets up two-step login again.
+			jdbcTemplate.update("""
+					update users set totp_secret = null, totp_pending_secret = null, totp_enabled_at = null, totp_last_step = null
+					where id = ?
+					""", userId);
+			jdbcTemplate.update("delete from user_recovery_codes where user_id = ?", userId);
 		});
 
 		return ResponseEntity.ok(Map.of(
 				"status", "SUCCESS",
 				"userId", userId.toString(),
 				"email", request.email().trim(),
-				"message", "Password successfully reset."
+				"message", "Password reset and two-step login cleared."
 		));
 	}
 

@@ -76,6 +76,9 @@ public class ClinicService {
 		if (request.pricesIncludeTax() != null) {
 			clinic.setPricesIncludeTax(request.pricesIncludeTax());
 		}
+		if (request.requireTwoStep() != null) {
+			clinic.setRequireTwoStep(request.requireTwoStep());
+		}
 		if (request.gstin() != null) {
 			clinic.setGstin(request.gstin().isBlank() ? null : request.gstin().trim().toUpperCase());
 		}
@@ -107,6 +110,7 @@ public class ClinicService {
 				clinic.getAddress(),
 				clinic.getGstin(),
 				clinic.isPricesIncludeTax(),
+				clinic.isRequireTwoStep(),
 				clinic.getVersion());
 	}
 

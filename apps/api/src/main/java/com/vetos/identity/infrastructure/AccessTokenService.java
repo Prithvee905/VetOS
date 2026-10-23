@@ -4,6 +4,7 @@ import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.vetos.identity.domain.VetosAuthentication;
 import com.vetos.platform.config.VetosProperties;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -34,29 +35,66 @@ public class AccessTokenService {
 		this.decoder = NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
 	}
 
+	/** Token type of the short-lived proof that the password was right and a two-step code is now needed. */
+	private static final String TWO_STEP_CHALLENGE = "two_step_challenge";
+	private static final Duration CHALLENGE_TTL = Duration.ofMinutes(5);
+
 	public String issue(UUID userId, UUID clinicId, String displayName, List<String> roles) {
+		return issue(userId, clinicId, displayName, roles, false);
+	}
+
+	/** @param twoStepSetupRequired the clinic requires two-step login and this user has not set it up yet */
+	public String issue(UUID userId, UUID clinicId, String displayName, List<String> roles, boolean twoStepSetupRequired) {
 		Instant now = Instant.now();
-		JwtClaimsSet claims = JwtClaimsSet.builder()
+		JwtClaimsSet.Builder claims = JwtClaimsSet.builder()
 				.subject(userId.toString())
 				.issuedAt(now)
 				.expiresAt(now.plus(properties.jwt().accessTtl()))
 				.claim("clinic_id", clinicId.toString())
 				.claim("display_name", displayName)
-				.claim("roles", roles)
-				.build();
+				.claim("roles", roles);
+		if (twoStepSetupRequired) {
+			claims.claim("two_step_setup", true);
+		}
 		JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
-		return encoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
+		return encoder.encode(JwtEncoderParameters.from(header, claims.build())).getTokenValue();
 	}
 
 	public VetosAuthentication authenticate(String token) {
 		Jwt jwt = decoder.decode(token);
+		if (jwt.getClaim("typ") != null) {
+			throw new IllegalArgumentException("Not an access token");
+		}
 		@SuppressWarnings("unchecked")
 		List<String> roles = (List<String>) jwt.getClaim("roles");
 		return new VetosAuthentication(
 				UUID.fromString(jwt.getSubject()),
 				UUID.fromString(jwt.getClaimAsString("clinic_id")),
 				jwt.getClaimAsString("display_name"),
-				roles == null ? List.of() : roles);
+				roles == null ? List.of() : roles,
+				Boolean.TRUE.equals(jwt.getClaim("two_step_setup")));
+	}
+
+	public String issueTwoStepChallenge(UUID userId, UUID clinicId) {
+		Instant now = Instant.now();
+		JwtClaimsSet claims = JwtClaimsSet.builder()
+				.subject(userId.toString())
+				.issuedAt(now)
+				.expiresAt(now.plus(CHALLENGE_TTL))
+				.claim("clinic_id", clinicId.toString())
+				.claim("typ", TWO_STEP_CHALLENGE)
+				.build();
+		JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
+		return encoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
+	}
+
+	/** Returns {userId, clinicId} for a valid, unexpired challenge, or throws. */
+	public UUID[] readTwoStepChallenge(String token) {
+		Jwt jwt = decoder.decode(token);
+		if (!TWO_STEP_CHALLENGE.equals(jwt.getClaimAsString("typ"))) {
+			throw new IllegalArgumentException("Not a two-step challenge");
+		}
+		return new UUID[] { UUID.fromString(jwt.getSubject()), UUID.fromString(jwt.getClaimAsString("clinic_id")) };
 	}
 
 }

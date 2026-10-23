@@ -145,6 +145,12 @@ export function AppShell({ children, title }: { children: React.ReactNode; title
   const user = session.data as SessionUser;
   const isOwner = user.roles.includes("OWNER");
 
+  // The clinic requires two-step login: nothing else works until this user sets up their authenticator app.
+  if (user.twoStepSetupRequired && !pathname.startsWith("/account/security")) {
+    router.replace("/account/security");
+    return <p className="mx-auto max-w-6xl px-6 py-10 text-slate-600">Two-step login setup required…</p>;
+  }
+
   return (
     <div className="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-6 py-8">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
@@ -272,6 +278,9 @@ export function AppShell({ children, title }: { children: React.ReactNode; title
             )}
           </div>
 
+          <Link href="/account/security" className="text-xs font-semibold text-slate-600 hover:text-teal-800">
+            Account security
+          </Link>
           <Button
             type="button"
             variant="outline"

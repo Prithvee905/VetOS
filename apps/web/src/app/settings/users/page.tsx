@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { apiJson, currentUser, type UserRow } from "@/lib/api";
+import { apiJson, currentUser, resetUserTwoStep, type UserRow } from "@/lib/api";
 
 type UserPage = {
   items: UserRow[];
@@ -51,6 +51,12 @@ export default function UsersSettingsPage() {
     onError: (error: Error) => setMessage(error.message),
   });
 
+  const resetTwoStep = useMutation({
+    mutationFn: (user: UserRow) => resetUserTwoStep(user.id),
+    onSuccess: (_, user) => setMessage(`Two-step login reset for ${user.displayName}. They sign in with their password and set it up again.`),
+    onError: (error: Error) => setMessage(error.message),
+  });
+
   if (session.isLoading) {
     return <p className="text-slate-600">Loading…</p>;
   }
@@ -76,6 +82,20 @@ export default function UsersSettingsPage() {
                 <span className="text-slate-500">
                   {user.roles.join(", ")} · {user.status}
                 </span>
+                {user.id !== session.data?.id && (
+                  <button
+                    type="button"
+                    className="self-start text-xs text-slate-500 underline hover:text-slate-800"
+                    disabled={resetTwoStep.isPending}
+                    onClick={() => {
+                      if (window.confirm(`Reset two-step login for ${user.displayName}? Use this if they lost their phone.`)) {
+                        resetTwoStep.mutate(user);
+                      }
+                    }}
+                  >
+                    Reset two-step login
+                  </button>
+                )}
               </li>
             ))}
           </ul>

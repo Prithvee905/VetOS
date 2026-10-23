@@ -13,12 +13,23 @@ public final class VetosAuthentication implements Authentication {
 	private final UUID clinicId;
 	private final String displayName;
 	private final List<GrantedAuthority> authorities;
+	private final boolean twoStepSetupRequired;
 
 	public VetosAuthentication(UUID userId, UUID clinicId, String displayName, List<String> roles) {
+		this(userId, clinicId, displayName, roles, false);
+	}
+
+	public VetosAuthentication(UUID userId, UUID clinicId, String displayName, List<String> roles, boolean twoStepSetupRequired) {
 		this.userId = userId;
 		this.clinicId = clinicId;
 		this.displayName = displayName;
 		this.authorities = roles.stream().map(role -> (GrantedAuthority) new SimpleGrantedAuthority("ROLE_" + role)).toList();
+		this.twoStepSetupRequired = twoStepSetupRequired;
+	}
+
+	/** The clinic requires two-step login and this user must set it up before using anything else. */
+	public boolean twoStepSetupRequired() {
+		return twoStepSetupRequired;
 	}
 
 	public UUID userId() {
