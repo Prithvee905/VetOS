@@ -90,6 +90,10 @@ public class WhatsAppOutboxHandler implements OutboxHandler {
 			}
 			if (!sessionMessage) {
 				templateKey = "INVOICE_PDF";
+				// invoice_pdf_alert body: "Dear {{1}}, Thank you for visiting {{3}} ... invoice {{2}} ..."
+				templateParams.clear();
+				templateParams.addAll(invoicePdfAlertParams(
+						clientName, invoice.invoiceNumber(), clinicalWorkflowService.clinicDisplayName(clinicId)));
 				byte[] pdf = invoicePdfService.render(invoice, clientName, patientName,
 						clinicalWorkflowService.clinicInvoiceHeader(clinicId));
 				headerDocumentFilename = safePdfFilename(invoice.invoiceNumber());
@@ -123,6 +127,14 @@ public class WhatsAppOutboxHandler implements OutboxHandler {
 					outboxEventId,
 					clinicId);
 		}
+	}
+
+	/** Values for the Meta template invoice_pdf_alert, in placeholder order: owner, invoice number, clinic. */
+	static List<String> invoicePdfAlertParams(String ownerName, String invoiceNumber, String clinicName) {
+		return List.of(
+				StringUtils.hasText(ownerName) ? ownerName : "Pet Parent",
+				StringUtils.hasText(invoiceNumber) ? invoiceNumber : "-",
+				StringUtils.hasText(clinicName) ? clinicName : "our clinic");
 	}
 
 	private static String safePdfFilename(String invoiceNumber) {

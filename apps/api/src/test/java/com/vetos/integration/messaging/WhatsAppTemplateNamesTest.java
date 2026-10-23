@@ -29,7 +29,8 @@ class WhatsAppTemplateNamesTest {
 		assertThat(ConfigurableWhatsAppClient.fitParamCount(java.util.List.of("a", "b", "c", "d"),
 				WhatsAppTemplateNames.bodyParamCount("campaign_notice"))).containsExactly("a", "b", "c");
 		assertThat(ConfigurableWhatsAppClient.fitParamCount(java.util.List.of("a"),
-				WhatsAppTemplateNames.bodyParamCount("invoice_pdf_alert"))).containsExactly("a");
+				WhatsAppTemplateNames.bodyParamCount("invoice_alert"))).containsExactly("a");
+		assertThat(WhatsAppTemplateNames.bodyParamCount("invoice_pdf_alert")).isEqualTo(3);
 	}
 
 	@Test
