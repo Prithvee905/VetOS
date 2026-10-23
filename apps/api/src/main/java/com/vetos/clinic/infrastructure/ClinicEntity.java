@@ -61,6 +61,9 @@ public class ClinicEntity {
 	@Column(name = "require_two_step", nullable = false)
 	private boolean requireTwoStep = false;
 
+	@Column(name = "send_vaccination_card", nullable = false)
+	private boolean sendVaccinationCard = false;
+
 	@Column(name = "created_at", nullable = false)
 	private Instant createdAt;
 
@@ -192,6 +195,14 @@ public class ClinicEntity {
 
 	public void setRequireTwoStep(boolean requireTwoStep) {
 		this.requireTwoStep = requireTwoStep;
+	}
+
+	public boolean isSendVaccinationCard() {
+		return sendVaccinationCard;
+	}
+
+	public void setSendVaccinationCard(boolean sendVaccinationCard) {
+		this.sendVaccinationCard = sendVaccinationCard;
 	}
 
 	public boolean isAllowMedicineDiscount() {

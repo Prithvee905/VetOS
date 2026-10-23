@@ -26,6 +26,8 @@ public class WhatsAppOutboxHandler implements OutboxHandler {
 	private final ClinicalWorkflowService clinicalWorkflowService;
 	private final InvoicePdfService invoicePdfService;
 	private final MetaWhatsAppMediaUploader mediaUploader;
+	private final com.vetos.platform.application.VaccinationCardService vaccinationCardService;
+	private final com.vetos.integration.messaging.VaccinationCardPdfService vaccinationCardPdfService;
 
 	public WhatsAppOutboxHandler(
 			WhatsAppClient whatsAppClient,
@@ -33,13 +35,17 @@ public class WhatsAppOutboxHandler implements OutboxHandler {
 			JdbcTemplate jdbcTemplate,
 			ClinicalWorkflowService clinicalWorkflowService,
 			InvoicePdfService invoicePdfService,
-			MetaWhatsAppMediaUploader mediaUploader) {
+			MetaWhatsAppMediaUploader mediaUploader,
+			com.vetos.platform.application.VaccinationCardService vaccinationCardService,
+			com.vetos.integration.messaging.VaccinationCardPdfService vaccinationCardPdfService) {
 		this.whatsAppClient = whatsAppClient;
 		this.objectMapper = objectMapper;
 		this.jdbcTemplate = jdbcTemplate;
 		this.clinicalWorkflowService = clinicalWorkflowService;
 		this.invoicePdfService = invoicePdfService;
 		this.mediaUploader = mediaUploader;
+		this.vaccinationCardService = vaccinationCardService;
+		this.vaccinationCardPdfService = vaccinationCardPdfService;
 	}
 
 	@Override
@@ -101,6 +107,22 @@ public class WhatsAppOutboxHandler implements OutboxHandler {
 				if (!StringUtils.hasText(headerDocumentMediaId)) {
 					throw new IllegalStateException("WhatsApp media upload failed for invoice PDF.");
 				}
+			}
+		}
+		else if (root.hasNonNull("vaccinationCardPatientId")) {
+			// Built now, so every vaccine recorded during the visit is on it.
+			var card = vaccinationCardService.load(clinicId, UUID.fromString(root.get("vaccinationCardPatientId").asText()));
+			templateKey = "VACCINATION_CARD";
+			templateParams.clear();
+			// vaccination_card body: owner {{1}}, pet {{2}}, clinic {{3}}
+			templateParams.addAll(List.of(
+					StringUtils.hasText(card.ownerName()) ? card.ownerName() : "Pet Parent",
+					card.petName(),
+					StringUtils.hasText(card.clinicName()) ? card.clinicName() : "our clinic"));
+			headerDocumentFilename = "Vaccination-card-" + card.petName().replaceAll("[^A-Za-z0-9._-]", "_") + ".pdf";
+			headerDocumentMediaId = mediaUploader.uploadPdf(vaccinationCardPdfService.render(card), headerDocumentFilename);
+			if (!StringUtils.hasText(headerDocumentMediaId)) {
+				throw new IllegalStateException("WhatsApp media upload failed for vaccination card PDF.");
 			}
 		}
 		else if ("INVOICE_PDF".equalsIgnoreCase(templateKey)

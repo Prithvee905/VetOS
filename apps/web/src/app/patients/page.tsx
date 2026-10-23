@@ -11,6 +11,7 @@ import {
   getPatientTimeline,
   recordDeworming,
   recordVaccination,
+  sendVaccinationCard,
   createLabOrder,
   listUsers,
   listBranches,
@@ -303,6 +304,12 @@ export default function PatientsPage() {
     },
   });
 
+  const sendCard = useMutation({
+    mutationFn: () => sendVaccinationCard(selectedPatientId!),
+    onSuccess: () => window.alert("The vaccination card is being sent to the owner's WhatsApp."),
+    onError: (err) => window.alert(err instanceof Error ? err.message : "Could not send the card."),
+  });
+
   const vaxMutation = useMutation({
     mutationFn: () =>
       recordVaccination({
@@ -576,6 +583,25 @@ export default function PatientsPage() {
                     >
                       + Record Vaccine
                     </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => window.open(`/api/v1/patients/${selectedPatientId}/vaccination-card.pdf`, "_blank")}
+                    >
+                      Vaccination card
+                    </Button>
+                    {isDoctorOrOwner && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={sendCard.isPending}
+                        onClick={() => sendCard.mutate()}
+                      >
+                        {sendCard.isPending ? "Sending…" : "Send card on WhatsApp"}
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       variant="outline"

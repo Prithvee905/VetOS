@@ -157,6 +157,26 @@ export default function ClinicSettingsPage() {
           </label>
         </div>
 
+        {/* Vaccination card on WhatsApp */}
+        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              id="sendVaccinationCard"
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-slate-300"
+              checked={values.sendVaccinationCard ?? false}
+              onChange={(event) => setForm((current) => ({ ...current, sendVaccinationCard: event.target.checked }))}
+            />
+            <span>
+              <span className="text-sm font-bold text-slate-900">Send the vaccination card on WhatsApp after vaccines</span>
+              <span className="block text-xs text-slate-500">
+                About 15 minutes after the last vaccine of a visit is recorded, the owner gets the updated card as a PDF.
+                Needs the approved WhatsApp template &quot;vaccination_card&quot;.
+              </span>
+            </span>
+          </label>
+        </div>
+
         {/* Sign-in security */}
         <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
           <label className="flex cursor-pointer items-start gap-3">
@@ -331,6 +351,7 @@ export default function ClinicSettingsPage() {
               gstin: values.gstin ?? "",
               pricesIncludeTax: values.pricesIncludeTax ?? true,
               requireTwoStep: values.requireTwoStep ?? false,
+              sendVaccinationCard: values.sendVaccinationCard ?? false,
               maxStaffDiscountPercent: values.maxStaffDiscountPercent ?? 20,
               loyalDiscountPercent: values.loyalDiscountPercent ?? 30,
               ngoConsultationDiscountPercent: values.ngoConsultationDiscountPercent ?? 50,

@@ -153,6 +153,36 @@ class VaccineScheduleTest extends ApiIntegrationTest {
 	}
 
 	@Test
+	void vaccinesRecordedInOneVisitSendOneCardOnWhatsAppLater() throws Exception {
+		transactionTemplate.executeWithoutResult(status -> {
+			tenantTransactionSupport.setClinic(clinicId);
+			jdbcTemplate.update("update clinics set send_vaccination_card = true where id = ?", clinicId);
+		});
+		String doctor = login(doctorEmail);
+		String petId = postJson(doctor, "/api/v1/patients", """
+				{"clientId":"%s","name":"Bruno","speciesCode":"CANINE","sizeCategory":"SMALL"}
+				""".formatted(clientId), 201).get("id").asText();
+		for (String vaccine : new String[] { "Rabies", "DHPPi" }) {
+			postJson(doctor, "/api/v1/vaccinations", """
+					{"patientId":"%s","vaccineName":"%s","administeredOn":"%s"}
+					""".formatted(petId, vaccine, today), 201);
+		}
+		transactionTemplate.executeWithoutResult(status -> {
+			tenantTransactionSupport.setClinic(clinicId);
+			var rows = jdbcTemplate.queryForList("""
+					select payload->>'template' as template, next_attempt_at > now() + interval '10 minutes' as delayed
+					from outbox_events where clinic_id = ? and payload->>'vaccinationCardPatientId' = ?
+					""", clinicId, petId);
+			assertThat(rows).hasSize(1);
+			assertThat(rows.getFirst().get("template")).isEqualTo("VACCINATION_CARD");
+			assertThat(rows.getFirst().get("delayed")).isEqualTo(true);
+		});
+		mockMvc.perform(get("/api/v1/patients/" + petId + "/vaccination-card.pdf").cookie(new Cookie("vetos_access", doctor)))
+				.andExpect(status().isOk())
+				.andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().contentType("application/pdf"));
+	}
+
+	@Test
 	void receptionCannotChangeProtocolsAndProtocolNeedsATiming() throws Exception {
 		String doctor = login(doctorEmail);
 		postJson(doctor, "/api/v1/vaccine-protocols", """

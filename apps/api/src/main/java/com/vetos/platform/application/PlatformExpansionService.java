@@ -21,11 +21,14 @@ public class PlatformExpansionService {
 	private final AuditRecorder auditRecorder;
 
 	private final VaccineScheduleService vaccineScheduleService;
+	private final VaccinationCardService vaccinationCardService;
 
-	public PlatformExpansionService(JdbcTemplate jdbcTemplate, AuditRecorder auditRecorder, VaccineScheduleService vaccineScheduleService) {
+	public PlatformExpansionService(JdbcTemplate jdbcTemplate, AuditRecorder auditRecorder, VaccineScheduleService vaccineScheduleService,
+			VaccinationCardService vaccinationCardService) {
 		this.jdbcTemplate = jdbcTemplate;
 		this.auditRecorder = auditRecorder;
 		this.vaccineScheduleService = vaccineScheduleService;
+		this.vaccinationCardService = vaccinationCardService;
 	}
 
 	public LeadResponse createLead(UUID clinicId, UUID actorId, LeadCreateRequest request, String requestId) {
@@ -75,6 +78,7 @@ public class PlatformExpansionService {
 			jdbcTemplate.update("update vaccination_doses set next_due_on = ? where clinic_id = ? and id = ?", java.sql.Date.valueOf(nextDue), clinicId, id);
 		}
 		auditRecorder.record(clinicId, actorId, "CREATE", "vaccination_dose", id, requestId);
+		vaccinationCardService.queueAfterVisit(clinicId, request.patientId());
 		return new VaccinationResponse(id, request.patientId(), request.vaccineName());
 	}
 

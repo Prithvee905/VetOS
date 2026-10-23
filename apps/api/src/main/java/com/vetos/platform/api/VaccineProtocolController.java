@@ -21,10 +21,36 @@ public class VaccineProtocolController {
 
 	private final VaccineScheduleService vaccineScheduleService;
 	private final AuthorizationSupport authorizationSupport;
+	private final com.vetos.platform.application.VaccinationCardService vaccinationCardService;
+	private final com.vetos.integration.messaging.VaccinationCardPdfService vaccinationCardPdfService;
 
-	public VaccineProtocolController(VaccineScheduleService vaccineScheduleService, AuthorizationSupport authorizationSupport) {
+	public VaccineProtocolController(
+			VaccineScheduleService vaccineScheduleService,
+			AuthorizationSupport authorizationSupport,
+			com.vetos.platform.application.VaccinationCardService vaccinationCardService,
+			com.vetos.integration.messaging.VaccinationCardPdfService vaccinationCardPdfService) {
 		this.vaccineScheduleService = vaccineScheduleService;
 		this.authorizationSupport = authorizationSupport;
+		this.vaccinationCardService = vaccinationCardService;
+		this.vaccinationCardPdfService = vaccinationCardPdfService;
+	}
+
+	@GetMapping("/patients/{patientId}/vaccination-card.pdf")
+	public org.springframework.http.ResponseEntity<byte[]> vaccinationCard(@AuthenticationPrincipal VetosAuthentication auth, @PathVariable UUID patientId) {
+		byte[] pdf = vaccinationCardPdfService.render(vaccinationCardService.load(auth.clinicId(), patientId));
+		return org.springframework.http.ResponseEntity.ok()
+				.header("Content-Disposition", "inline; filename=vaccination-card.pdf")
+				.contentType(org.springframework.http.MediaType.APPLICATION_PDF)
+				.body(pdf);
+	}
+
+	@PostMapping("/patients/{patientId}/vaccination-card/send")
+	public java.util.Map<String, Boolean> sendVaccinationCard(@AuthenticationPrincipal VetosAuthentication auth, @PathVariable UUID patientId) {
+		authorizationSupport.requirePermission(auth, "VACCINATION_WRITE");
+		if (!vaccinationCardService.queueNow(auth.clinicId(), patientId)) {
+			throw com.vetos.platform.api.ApiException.badRequest("The owner has no mobile number on file.");
+		}
+		return java.util.Map.of("queued", true);
 	}
 
 	@GetMapping("/vaccine-protocols")

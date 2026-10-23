@@ -17,7 +17,7 @@ public final class WhatsAppTemplateNames {
 	public static int bodyParamCount(String metaTemplateName) {
 		if (metaTemplateName == null) return -1;
 		return switch (metaTemplateName) {
-			case "campaign_notice", "invoice_pdf_alert" -> 3;
+			case "campaign_notice", "invoice_pdf_alert", "vaccination_card" -> 3;
 			case "followup_reminder", "deworm_due", "followup_notice", "appointment_notice" -> 4;
 			case "vaccine_notice", "deworm_notice" -> 5;
 			default -> -1;
@@ -34,6 +34,7 @@ public final class WhatsAppTemplateNames {
 		}
 		return switch (key.toUpperCase()) {
 			case "INVOICE_PDF" -> "invoice_pdf_alert";
+			case "VACCINATION_CARD" -> "vaccination_card";
 			case "INVOICE_ALERT", "CLINIC_UPDATE" -> "campaign_notice";
 			case "APPOINTMENT_REMINDER" -> "appointment_notice";
 			case "VAX_REMINDER" -> "vaccine_notice";

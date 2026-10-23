@@ -79,6 +79,9 @@ public class ClinicService {
 		if (request.requireTwoStep() != null) {
 			clinic.setRequireTwoStep(request.requireTwoStep());
 		}
+		if (request.sendVaccinationCard() != null) {
+			clinic.setSendVaccinationCard(request.sendVaccinationCard());
+		}
 		if (request.gstin() != null) {
 			clinic.setGstin(request.gstin().isBlank() ? null : request.gstin().trim().toUpperCase());
 		}
@@ -111,6 +114,7 @@ public class ClinicService {
 				clinic.getGstin(),
 				clinic.isPricesIncludeTax(),
 				clinic.isRequireTwoStep(),
+				clinic.isSendVaccinationCard(),
 				clinic.getVersion());
 	}
 

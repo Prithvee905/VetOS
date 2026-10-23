@@ -38,6 +38,8 @@ export type ClinicProfile = {
   gstin?: string | null;
   /** Owners and doctors must use an authenticator app to sign in. */
   requireTwoStep?: boolean;
+  /** Send the vaccination card PDF on WhatsApp after vaccines are recorded. */
+  sendVaccinationCard?: boolean;
   /** True when catalog prices already include GST (MRP style). */
   pricesIncludeTax?: boolean;
   version: number;
@@ -1651,4 +1653,9 @@ export async function getOnlineBookingSettings(): Promise<OnlineBookingSettings>
 
 export async function updateOnlineBookingSettings(body: Partial<Omit<OnlineBookingSettings, "clinicName">>): Promise<OnlineBookingSettings> {
   return apiJson<OnlineBookingSettings>("/api/v1/clinic/online-booking", { method: "PUT", body: JSON.stringify(body) });
+}
+
+/** Queues the pet's vaccination card PDF to the owner's WhatsApp. */
+export async function sendVaccinationCard(patientId: string): Promise<void> {
+  await apiJson<{ queued: boolean }>(`/api/v1/patients/${patientId}/vaccination-card/send`, { method: "POST" });
 }
