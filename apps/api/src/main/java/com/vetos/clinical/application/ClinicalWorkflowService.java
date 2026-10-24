@@ -245,8 +245,16 @@ public class ClinicalWorkflowService {
 		if (!"SCHEDULED".equals(appointment.status()) && !"CONFIRMED".equals(appointment.status())) {
 			throw ApiException.conflict("Appointment cannot be checked in.");
 		}
+		// Serialise check-ins per branch so two people checking in together cannot get the same token.
+		jdbcTemplate.query("select pg_advisory_xact_lock(hashtextextended(?, 0))", rs -> {
+		}, "queue:" + appointment.branchId());
+		// Tokens restart at 1 each day, by the clinic's own calendar day.
 		Integer token = jdbcTemplate.queryForObject("""
-				select coalesce(max(token_number), 0) + 1 from queue_entries where clinic_id = ? and branch_id = ?
+				select coalesce(max(q.token_number), 0) + 1
+				from queue_entries q
+				join clinics c on c.id = q.clinic_id
+				where q.clinic_id = ? and q.branch_id = ?
+				  and (q.checked_in_at at time zone c.timezone)::date = (now() at time zone c.timezone)::date
 				""",
 				Integer.class,
 				clinicId,
@@ -278,7 +286,7 @@ public class ClinicalWorkflowService {
 		return jdbcTemplate.query("""
 				select id, branch_id, appointment_id, patient_id, doctor_user_id, token_number, priority, status, checked_in_at, version
 				from queue_entries where clinic_id = ? and branch_id = ? and status in ('WAITING', 'IN_CONSULTATION')
-				order by token_number
+				order by checked_in_at, token_number
 				""",
 				queueMapper(),
 				clinicId,

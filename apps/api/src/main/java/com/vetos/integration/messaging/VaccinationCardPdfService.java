@@ -83,7 +83,7 @@ public class VaccinationCardPdfService {
 				document.add(given);
 			}
 			document.add(new Paragraph(" "));
-			document.add(new Paragraph("Generated " + DATE.format(LocalDate.now()) + ". Please bring this card to every visit.", SMALL));
+			document.add(new Paragraph("Generated " + DATE.format(LocalDate.now()) + ". Please keep this card for your records.", SMALL));
 
 			document.close();
 			return output.toByteArray();
