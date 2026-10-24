@@ -68,8 +68,7 @@ if [ -n "$site" ]; then
 fi
 
 # 5. A recent backup exists (the backup script's own alert covers failures; this covers it never running)
-newest=$(find "$PROJECT_ROOT/backups/postgres" -type f -name 'clinic-os-*.sql.gz' -printf '%T@
-' 2>/dev/null | sort -n | tail -n 1)
+newest=$(find "$PROJECT_ROOT/backups/postgres" -type f -name 'clinic-os-*.sql.gz' -printf '%T@\n' 2>/dev/null | sort -n | tail -n 1)
 if [ -z "$newest" ]; then
   problems+=("No local database backup was found.")
 else
