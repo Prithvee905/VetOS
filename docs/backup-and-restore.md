@@ -149,3 +149,7 @@ If production database recovery is required due to corruption or host replacemen
 
 5. **Verify Clinical Station Access:**
    Navigate to `https://clinic.petwell.com/clinic` and verify active patients, appointments, and live queue.
+
+## Server health alerts
+
+`scripts/install-health-cron.sh` installs a check that runs every 5 minutes. It emails `BACKUP_ALERT_EMAIL` when the disk is 80% full or more, less than 100 MB of memory is available, a container is down or unhealthy, the public site does not answer, or no backup is newer than 30 hours. It repeats every 6 hours while the problem lasts and sends one more email when it is fixed. Problems are also written to `backups/health.log`. The limits can be changed with `HEALTH_DISK_MAX_PERCENT`, `HEALTH_MEM_MIN_MB`, `HEALTH_BACKUP_MAX_AGE_HOURS` and `HEALTH_SITE_URL` in `.env.production`.
